@@ -88,6 +88,8 @@ const SalesReportGenerator: React.FC<SalesReportGeneratorProps> = ({ locations }
   const [loading, setLoading] = useState(false);
   const [pdfComponents, setPdfComponents] = useState<any>(null);
 
+  const [pdfReady, setPdfReady] = useState(false);
+
   // Dynamically import PDF components only on client side
   useEffect(() => {
     const loadPdfComponents = async () => {
@@ -102,159 +104,172 @@ const SalesReportGenerator: React.FC<SalesReportGeneratorProps> = ({ locations }
     loadPdfComponents();
   }, []);
 
-  const generateReport = async () => {
-    if (!startDate || !endDate) {
+  useEffect(() => {
+  setPdfReady(false);
+}, [startDate, endDate, selectedLocation]);
+
+
+const toLocalISOString = (date: Date) => {
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString();
+};
+
+const fetchSalesData = async (
+  userId: string,
+  startDate: Date,
+  endDate: Date,
+  selectedLocation: number | null,
+  locations: Record<number, string>
+): Promise<SalesReportData | null> => {
+
+  const start = new Date(startDate);
+  start.setUTCHours(0, 0, 0, 0);
+
+  const end = new Date(endDate);
+  end.setUTCHours(23, 59, 59, 999);
+
+  const formattedStartDate = start.toISOString();
+  const formattedEndDate = end.toISOString();
+  
+
+  let query = supabase
+    .from('sales')
+    .select(`
+      *,
+      sales_items:sales_items(
+        *,
+        variant:variant_id(
+          *,
+          product:product_id(*)
+        )
+      ),
+      clients(name)
+    `)
+    .eq('user_id', userId)
+    .gte('created_at', formattedStartDate)
+    .lte('created_at', formattedEndDate)
+    .order('created_at', { ascending: true });
+
+  if (selectedLocation !== null) {
+    query = query.eq('location', selectedLocation);
+  }
+
+  const { data: sales, error } = await query;
+  if (error || !sales || sales.length === 0) return null;
+
+  const detailedSales = sales.map((sale: Sale) => ({
+    id: sale.id,
+    date: new Date(sale.created_at).toLocaleString('es-MX'),
+    clientName: sale.clients?.name || 'Sin cliente',
+    location: locations[sale.location] || 'Ubicación desconocida',
+    salesman: sale.salesman || 'Vendedor no especificado',
+    items: sale.sales_items?.map((item: SalesItem) => ({
+      name: item.variant?.product?.name || 'Producto desconocido',
+      quantity: item.quantity_sold,
+      price: item.sale_price,
+      total: item.quantity_sold * item.sale_price
+    })) || [],
+    subtotal: sale.sales_items?.reduce((sum, item) => sum + (item.quantity_sold * item.sale_price), 0) || 0,
+    discount: sale.discount_percentage || 0,
+    total: sale.total_amount
+  }));
+
+  const salesByDate: Record<string, { count: number; amount: number }> = {};
+  const productSales: Record<string, { quantity: number; total: number }> = {};
+  const clientSales: Record<string, { count: number; amount: number }> = {};
+
+  let totalAmount = 0;
+  let totalSales = sales.length;
+
+  sales.forEach(sale => {
+    const date = new Date(sale.created_at).toLocaleDateString();
+    const amount = sale.total_amount;
+    totalAmount += amount;
+
+    salesByDate[date] = salesByDate[date] || { count: 0, amount: 0 };
+    salesByDate[date].count++;
+    salesByDate[date].amount += amount;
+
+    const clientName = sale.clients?.name || 'Sin cliente';
+    clientSales[clientName] = clientSales[clientName] || { count: 0, amount: 0 };
+    clientSales[clientName].count++;
+    clientSales[clientName].amount += amount;
+
+    sale.sales_items?.forEach(item => {
+      const name = item.variant?.product?.name || 'Producto desconocido';
+      productSales[name] = productSales[name] || { quantity: 0, total: 0 };
+      productSales[name].quantity += item.quantity_sold;
+      productSales[name].total += item.quantity_sold * item.sale_price;
+    });
+  });
+
+  const topProducts = Object.entries(productSales)
+    .map(([name, data]) => ({ name, ...data }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+
+  const topClients = Object.entries(clientSales)
+    .map(([name, data]) => ({ clientName: name, ...data }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 5);
+
+  return {
+    totalSales,
+    totalAmount,
+    averageTicket: totalSales ? totalAmount / totalSales : 0,
+    salesByDate: Object.entries(salesByDate).map(([date, data]) => ({
+      date,
+      ...data,
+    })),
+    topProducts,
+    salesByClient: topClients,
+    detailedSales,
+  };
+};
+
+const generateReport = async () => {
+  if (!startDate || !endDate) {
+    toast({
+      variant: "destructive",
+      title: "Error",
+      description: "Por favor seleccione un rango de fechas",
+    });
+    return;
+  }
+
+  try {
+    setLoading(true);
+    const userId = await getUserId();
+
+    const data = await fetchSalesData(userId, startDate, endDate, selectedLocation, locations);
+
+    if (!data) {
       toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Por favor seleccione un rango de fechas",
+        variant: "default",
+        title: "Sin datos",
+        description: "No se encontraron ventas para el filtro seleccionado.",
       });
+      setReportData(null);
+      setPdfReady(false);
       return;
     }
 
-    try {
-      setLoading(true);
-      const userId = await getUserId();
+    setReportData(data);
+    setPdfReady(true);
+  } catch (err) {
+    console.error('Error generating report:', err);
+    toast({
+      variant: "destructive",
+      title: "Error",
+      description: "Error al generar el reporte",
+    });
+    setPdfReady(false);
+  } finally {
+    setLoading(false);
+  }
+};
 
-      // Format dates for the database query
-      const formattedStartDate = startDate.toISOString();
-      const formattedEndDate = endDate.toISOString();
 
-      // Fetch sales data with more detailed information
-      const { data: sales, error } = await supabase
-        .from('sales')
-        .select(`
-          *,
-          sales_items:sales_items(
-            *,
-            variant:variant_id(
-              *,
-              product:product_id(*)
-            )
-          ),
-          clients(name)
-        `)
-        .eq('user_id', userId)
-        .eq('location', selectedLocation)
-        .gte('created_at', formattedStartDate)
-        .lte('created_at', formattedEndDate)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-
-      // Filter by location if selected
-      const filteredSales = sales;
-
-      // Process sales data for detailed view
-      const detailedSales = filteredSales.map((sale: Sale) => ({
-        id: sale.id,
-        date: new Date(sale.created_at).toLocaleString('es-MX'),
-        clientName: sale.clients?.name || 'Sin cliente',
-        location: locations[sale.location] || 'Ubicación desconocida',
-        salesman: sale.salesman || 'Vendedor no especificado',
-        items: sale.sales_items?.map((item: SalesItem) => ({
-          name: item.variant?.product?.name || 'Producto desconocido',
-          quantity: item.quantity_sold,
-          price: item.sale_price,
-          total: item.quantity_sold * item.sale_price
-        })) || [],
-        subtotal: sale.sales_items?.reduce((sum, item) => sum + (item.quantity_sold * item.sale_price), 0) || 0,
-        discount: sale.discount_percentage || 0,
-        total: sale.total_amount
-      }));
-
-      // Process sales data
-      const salesByDate: Record<string, { count: number; amount: number }> = {};
-      const productSales: Record<string, { quantity: number; total: number }> = {};
-      const clientSales: Record<string, { count: number; amount: number }> = {};
-
-      let totalAmount = 0;
-      let totalSales = filteredSales.length;
-
-      filteredSales.forEach(sale => {
-        const date = new Date(sale.created_at).toLocaleDateString();
-        const amount = sale.total_amount;
-        totalAmount += amount;
-
-        // Aggregate by date
-        if (!salesByDate[date]) {
-          salesByDate[date] = { count: 0, amount: 0 };
-        }
-        salesByDate[date].count++;
-        salesByDate[date].amount += amount;
-
-        // Aggregate by client
-        const clientName = sale.clients?.name || 'Sin cliente';
-        if (!clientSales[clientName]) {
-          clientSales[clientName] = { count: 0, amount: 0 };
-        }
-        clientSales[clientName].count++;
-        clientSales[clientName].amount += amount;
-
-        // Aggregate by product
-        sale.sales_items?.forEach((item: { 
-          variant?: { 
-            product?: { 
-              name: string 
-            } 
-          }, 
-          quantity_sold: number, 
-          sale_price: number 
-        }) => {
-          const productName = item.variant?.product?.name || 'Producto desconocido';
-          if (!productSales[productName]) {
-            productSales[productName] = { quantity: 0, total: 0 };
-          }
-          productSales[productName].quantity += item.quantity_sold;
-          productSales[productName].total += item.quantity_sold * item.sale_price;
-        });
-      });
-
-      // Sort and limit top products
-      const topProducts = Object.entries(productSales)
-        .map(([name, data]) => ({
-          name,
-          quantity: data.quantity,
-          total: data.total,
-        }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 5);
-
-      // Sort and limit top clients
-      const topClients = Object.entries(clientSales)
-        .map(([name, data]) => ({
-          clientName: name,
-          count: data.count,
-          amount: data.amount,
-        }))
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 5);
-
-      setReportData({
-        totalSales,
-        totalAmount,
-        averageTicket: totalSales > 0 ? totalAmount / totalSales : 0,
-        salesByDate: Object.entries(salesByDate).map(([date, data]) => ({
-          date,
-          count: data.count,
-          amount: data.amount,
-        })),
-        topProducts,
-        salesByClient: topClients,
-        detailedSales
-      });
-
-    } catch (err) {
-      console.error('Error generating report:', err);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Error al generar el reporte",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // PDF Document Component - only create when PDF components are loaded
   const createPDFDocument = () => {
@@ -359,7 +374,7 @@ const SalesReportGenerator: React.FC<SalesReportGeneratorProps> = ({ locations }
               {selectedLocation ? `Ubicación: ${locations[selectedLocation]}` : 'Todas las ubicaciones'}
             </Text>
             <Text style={styles.subtitle}>
-              Del {startDate?.toLocaleDateString('es-MX')} al {endDate?.toLocaleDateString('es-MX')}
+              Del {startDate?.toISOString().split('T')[0].split('-').reverse().join('/')} al {endDate?.toISOString().split('T')[0].split('-').reverse().join('/')}
             </Text>
           </View>
 
@@ -563,14 +578,17 @@ const SalesReportGenerator: React.FC<SalesReportGeneratorProps> = ({ locations }
 
       <div className="flex justify-end gap-4">
         <Button
-          onClick={generateReport}
+          onClick={async () => {
+            await new Promise(resolve => setTimeout(resolve, 0)); // espera un ciclo del event loop
+            generateReport();
+          }}
           disabled={loading || !startDate || !endDate}
           className="bg-blue-500 hover:bg-blue-600 h-10 px-6"
         >
           {loading ? 'Generando...' : 'Generar Reporte'}
         </Button>
 
-        {reportData && pdfComponents && (
+        {pdfReady && reportData && pdfComponents && (
           <pdfComponents.PDFDownloadLink
             document={createPDFDocument()}
             fileName={`reporte-ventas-${startDate?.toISOString().split('T')[0]}-${endDate?.toISOString().split('T')[0]}.pdf`}
