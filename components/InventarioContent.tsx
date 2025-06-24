@@ -62,11 +62,13 @@ const InventarioContent: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState<string>('');
 
   const itemsPerPage = 6;
 
   const filtered = inventory.filter(item =>
-    filterStatus === 'Todos' ? true : item.quantity > 0
+    (filterStatus === 'Todos' || item.quantity > 0) &&
+    item.productName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
@@ -240,6 +242,14 @@ const InventarioContent: React.FC = () => {
           <p className="mt-2 text-sm text-gray-500">Productos que necesitan reabastecimiento</p>
         </div>
       </div>
+
+      <input
+  type="text"
+  value={searchTerm}
+  onChange={(e) => setSearchTerm(e.target.value)}
+  placeholder="Buscar producto..."
+  className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+/>
 
       {/* Tabla */}
       <div className="bg-white rounded-lg border border-[#e6e6e6] shadow-sm mt-8">
