@@ -476,10 +476,15 @@ const ClientView: React.FC<ClientViewProps> = ({ onClose }) => {
                     <Label htmlFor="amount">Monto</Label>
                     <Input
                       id="amount"
-                      type="number"
-                      step="0.01"
-                      value={paymentAmount}
-                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      value={paymentAmount ? parseFloat(paymentAmount.replace(/,/g, '')).toLocaleString('es-MX') : ''}
+                      onChange={(e) => {
+                        const rawValue = e.target.value.replace(/,/g, '');
+                        if (/^\d*\.?\d*$/.test(rawValue)) {
+                          setPaymentAmount(rawValue);
+                        }
+                      }}
                       placeholder="Ingrese el monto"
                       className="mt-2"
                     />
@@ -616,3 +621,6 @@ const ClientView: React.FC<ClientViewProps> = ({ onClose }) => {
 };
 
 export default ClientView;
+
+
+
