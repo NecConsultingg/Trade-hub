@@ -34,13 +34,11 @@ interface EmployeeViewProps {
   onClose?: () => void;
 }
 
-type EmployeeViewParams = {
-  [key: string]: string | string[] | undefined;
-  id: string;
-}
 
 const EmployeeView: React.FC<EmployeeViewProps> = ({ onClose }) => {
-  const { id: employeeId } = useParams<EmployeeViewParams>();
+  const params = useParams();
+  const employeeId = (params?.employeeId || params?.id) as string;
+
   const router = useRouter();
   const { toast } = useToast();
 
