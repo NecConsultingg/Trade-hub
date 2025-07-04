@@ -55,6 +55,47 @@ export async function DELETE(request: Request) {
       );
     }
 
+
+    // Limpieza de datos relacionados (usa user_id, no id UUID)
+    const userId = businessData.user_id;
+
+    // 1. Borrar ventas y items
+    await supabase.from('sales_items').delete().in(
+      'sale_id',
+      (await supabase.from('sales').select('id').eq('user_id', userId)).data?.map(s => s.id) || []
+    );
+    await supabase.from('sales').delete().eq('user_id', userId);
+
+    // 2. Stock
+    await supabase.from('stock').delete().eq('user_id', userId);
+
+    // 3. Variantes y opciones
+    await supabase.from('optionVariants').delete().in(
+      'variant_id',
+      (await supabase.from('productVariants').select('variant_id').eq('user_id', userId)).data?.map(v => v.variant_id) || []
+    );
+    await supabase.from('productVariants').delete().eq('user_id', userId);
+
+    // 4. Características y opciones
+    await supabase.from('characteristics_options').delete().in(
+      'characteristics_id',
+      (await supabase.from('product_characteristics').select('characteristics_id')).data?.map(c => c.characteristics_id) || []
+    );
+    await supabase.from('product_characteristics').delete();
+
+    // 5. Productos
+    await supabase.from('products').delete().eq('user_id', userId);
+
+    // 6. Empleados
+    await supabase.from('employees').delete().eq('user_id', userId);
+
+    // 7. Clientes y pagos
+    await supabase.from('client_payments').delete().eq('user_id', userId);
+    await supabase.from('clients').delete().eq('user_id', userId);
+
+    // 8. Ubicaciones
+    await supabase.from('locations').delete().eq('user_id', userId);
+
     // First try to delete the auth user
     if (businessData.id) {
       try {
