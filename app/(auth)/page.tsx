@@ -26,6 +26,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isLoading) return; // evita múltiples envíos rápidos
 
     setEmailError("")
     setPasswordError("")
@@ -48,6 +49,7 @@ export default function LoginPage() {
     if (isValid) {
       try {
         setIsLoading(true)
+        await supabase.auth.signOut();
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -56,6 +58,10 @@ export default function LoginPage() {
         if (error) {
           console.error("Login error:", error)
           setPasswordError("Correo electrónico o contraseña incorrectos")
+
+          // Delay para evitar rate limit
+          await new Promise((resolve) => setTimeout(resolve, 1000)); // espera 1 segundo
+
           return
         }
 

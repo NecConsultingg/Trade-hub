@@ -1,4 +1,4 @@
-import { createBrowserClient } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -20,50 +20,44 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  const supabase = createBrowserClient(
-    'https://dijctnuytoiqorvkcjmq.supabase.co',
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value
+    const supabase = createServerClient(
+      'https://dijctnuytoiqorvkcjmq.supabase.co',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return request.cookies.get(name)?.value
+          },
+          set(name: string, value: string, options: any) {
+            response.cookies.set({ name, value, ...options })
+          },
+          remove(name: string, options: any) {
+            response.cookies.set({ name, value: '', ...options })
+          },
         },
-        set(name: string, value: string, options: any) {
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          })
-        },
-        remove(name: string, options: any) {
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
-        },
-      },
-    }
-  )
+      }
+    )
 
-  const { data: { session } } = await supabase.auth.getSession()
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
 
   // Define public paths that don't require authentication
   const publicPaths = ['/']
   const isPublicPath = publicPaths.includes(path)
 
   // If user is not signed in and trying to access a protected route
-  if (!session && !isPublicPath) {
-    return NextResponse.redirect(new URL('/', request.url))
-  }
+if (!user && !isPublicPath) {
+  return NextResponse.redirect(new URL('/', request.url));
+}
+
 
   // If user is signed in, handle role-based routing
-  if (session) {
-    // Get user role
-    const { data: userRole } = await supabase
-      .rpc('get_user_role', {
-        auth_user_id: session.user.id
-      })
+if (user) {
+  const { data: userRole } = await supabase.rpc('get_user_role', {
+    auth_user_id: user.id,
+  });
 
     // Handle initial login redirect
     if (path === '/') {
@@ -71,7 +65,7 @@ export async function middleware(request: NextRequest) {
         const { data: employeeData } = await supabase
           .from('employees')
           .select('role')
-          .eq('auth_id', session.user.id)
+          .eq('auth_id', user.id)
           .single()
 
         if (employeeData?.role === 'inventario') {
@@ -92,7 +86,7 @@ export async function middleware(request: NextRequest) {
         const { data: employeeData } = await supabase
           .from('employees')
           .select('role')
-          .eq('auth_id', session.user.id)
+          .eq('auth_id', user.id)
           .single()
 
         const isInventoryEmployee = employeeData?.role === 'inventario'
