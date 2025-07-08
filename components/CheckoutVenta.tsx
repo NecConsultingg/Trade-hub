@@ -531,6 +531,7 @@ const CheckoutVenta: React.FC<CheckoutVentaProps> = ({ onClose, locationId }) =>
   
   const getCharacteristicNames = (variantId: number): string[] => {
     const attrs = variantAttributes[variantId];
+    if (!attrs) return [];
     return Object.keys(attrs);
   };
 
