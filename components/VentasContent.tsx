@@ -445,8 +445,8 @@ const VentasContent: React.FC = () => {
                 margin: 0;
                 padding: 5mm;
                 font-family: 'Courier New', monospace;
-                font-size: 12px;
-                font-weight: bold;
+                font-size: 24px;
+                font-weight: bold !important;
               }
               .ticket {
                 width: 100%;
@@ -455,14 +455,14 @@ const VentasContent: React.FC = () => {
                 text-align: center;
                 margin-bottom: 10px;
               }
-              .header h2 {
-                font-size: 14px;
-                margin-bottom: 5px;
-              }
-              .header h3 {
-                font-size: 13px;
-                margin-bottom: 5px;
-              }
+              // .header h1 {
+              //   font-size: 26px !important;
+              //   margin-bottom: 5px;
+              // }
+              // .header h3 {
+              //   font-size: 23px !important;
+              //   margin-bottom: 5px;
+              // }
               .header p {
                 margin: 2px 0;
               }
@@ -480,7 +480,7 @@ const VentasContent: React.FC = () => {
               .footer {
                 text-align: center;
                 margin-top: 20px;
-                font-size: 10px;
+                font-size: 19px;
               }
               .item, .totals, .footer, p, div {
                 font-weight: bold !important;
