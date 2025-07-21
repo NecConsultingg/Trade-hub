@@ -323,6 +323,7 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
           </div>
           */}
           <div className="space-y-2 my-6">
+
             <Label htmlFor="product-name">Nombre</Label>
             <Input
               id="product-name"
@@ -337,9 +338,26 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
 
 
             <div className="space-y-2">
-              <Label htmlFor="product-name">Detalles</Label>
-              {attributes.map((attribute, attrIndex) => (
-                <div key={attrIndex} className="space-y-4 p-4 border rounded-lg">
+              
+            <div className="flex justify-between items-center mb-2">
+              <Label htmlFor="product-name" className="text-base font-semibold">
+                Detalles
+              </Label>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addAttribute}
+                className="text-sm"
+              >
+                <PlusIcon className="w-4 h-4 mr-2" />
+                Agregar atributo
+              </Button>
+            </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {attributes.map((attribute, attrIndex) => (
+              <Card key={attrIndex} className="p-4">
+                <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor={`attribute-${attrIndex}`}>
                       Nombre del atributo {attrIndex + 1}
@@ -403,18 +421,11 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
                     <Trash2 className="w-4 h-4 mr-2" />
                     Eliminar atributo
                   </Button>
-                </div>
-              ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                onClick={addAttribute}
-                className="w-full"
-              >
-                <PlusIcon className="w-4 h-4 mr-2" />
-                Agregar atributo
-              </Button>
             </div>
           </div>
 
