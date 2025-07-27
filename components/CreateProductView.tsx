@@ -8,6 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { PlusIcon, Trash2 } from "lucide-react";
 import { getUserId } from '@/lib/userId';
 import { supabase } from '@/lib/supabase';
+import { useRouter } from 'next/navigation';
+import {Modal} from '@/components/ui/modal';
 
 interface Attribute {
   name: string;
@@ -26,6 +28,9 @@ interface CreateProductViewProps {
 }
 
 const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, onClose }) => {
+  const router = useRouter();
+  const [showModal, setShowModal] = useState(false);
+  const [newProductId, setNewProductId] = useState<number|null>(null);
   const [productImage, setProductImage] = useState<string | null>(null);
   //const [fileName, setFileName] = useState("");
   const [productName, setProductName] = useState('');
@@ -95,9 +100,11 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
       setAttributes([{ name: '', options: [''] }]);
       setAttributeErrors([]);
       
-      // Just call onSaveProduct without passing data since product is already saved
-      onSaveProduct();
-      onClose();
+      // abrimos nuestro modal y almacenamos el ID
+      setNewProductId(insertedId);
+      setShowModal(true);
+      return;
+      
     } catch (error) {
       console.error("Error al guardar el producto:", error);
     }
@@ -258,6 +265,7 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
   
 
   return (
+    <>
     <div className="h-full">
       <Card className="w-full max-w-3xl mx-auto">
         <CardContent className="p-6 ">
@@ -441,10 +449,48 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
               Agregar
             </Button>
           </div>
+          {/* ———— Aquí insertas tu Modal personalizado ———— */}
+        <Modal open={showModal} onClose={() => setShowModal(false)}>
+          <h2 className="text-xl font-semibold mb-2">Producto creado 🎉</h2>
+          <p className="mb-6 text-gray-600">¿Deseas agregar inventario de este producto?</p>
+          <div className="flex flex-col gap-3">
+            <Button
+              onClick={() =>
+                router.push(
+                  `/dashboard/inventario/agregarinventario?productId=${newProductId}`
+                )
+              }
+              className="w-full"
+            >
+              Si
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowModal(false)}
+              className="w-full"
+            >
+              En otro momento
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => router.push('/dashboard/inventario')}
+              className="w-full"
+            >
+              Volver al inventario
+            </Button>
+          </div>
+        </Modal>
         </CardContent>
+        
       </Card>
+      
     </div>
+    
+  </>
+
+  
   );
+  
 };
 
 export default CreateProductView;
