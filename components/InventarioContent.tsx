@@ -28,6 +28,14 @@ interface InventoryItem {
   attributes?: any[];
 }
 
+interface ProductsGeneralInfo{
+  product_id: number;
+  product_name: string;
+  attributes: string;
+  total_stock: number;
+}
+
+
 type SupabaseStockItem = {
   id: number;
   variant_id: number;
@@ -54,28 +62,41 @@ type SupabaseStockItem = {
   user_id: string;
 };
 
+// Función para obtener los datos de los productos para la tabla
+async function fetchProductsGeneralInfo(userId: number) {
+  const { data, error } = await supabase.rpc('get_products_general_info', { user_id_param: userId });
+
+  if (error) {
+    console.error('Error al obtener productos:', error);
+    return [];
+  }
+  console.log('Datos de productos obtenidos:', data);
+  return data as ProductsGeneralInfo[];
+}
+
 const InventarioContent: React.FC = () => {
   const router = useRouter();
   const [filterStatus, setFilterStatus] = useState<'Todos' | 'ConStock'>('Todos');
   const [currentPage, setCurrentPage] = useState(1);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [inventory, setInventory] = useState<ProductsGeneralInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   const itemsPerPage = 6;
 
-  const filtered = inventory.filter(item =>
-    (filterStatus === 'Todos' || item.quantity > 0) &&
-    item.productName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    // const ProductswithStock = inventory.filter(item =>
+    //   (filterStatus === 'Todos' || item.total_stock > 0) &&
+    //   item.product_name?.toLowerCase().includes(searchTerm.toLowerCase())
+    // );
 
-  const totalPages = Math.ceil(filtered.length / itemsPerPage);
-  const pageData = filtered.slice(
+  const totalPages = Math.ceil(inventory.length / itemsPerPage);
+  const pageData = inventory.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
+  console.log('Datos de la página actual:', pageData);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -92,53 +113,9 @@ const InventarioContent: React.FC = () => {
       const userId = await getUserId();
       if (!userId) throw new Error('Usuario no autenticado.');
 
-      const { data, error: supaErr } = await supabase
-        .from('stock')
-        .select(`
-          id,
-          variant_id,
-          stock,
-          added_at,
-          locations ( name ),
-          productVariants (
-            products (
-              name,
-              product_characteristics ( name, characteristics_id )
-            ),
-            optionVariants (
-              characteristics_options ( values, characteristics_id )
-            )
-          )
-        `)
-        .eq('user_id', userId)
-        .returns<SupabaseStockItem[]>();
+      const formatted = await fetchProductsGeneralInfo(Number(userId));
 
-      if (supaErr) throw supaErr;
-
-      const formatted: InventoryItem[] = data.map(item => {
-        const prod = item.productVariants?.products;
-        const opts = item.productVariants?.optionVariants ?? [];
-        const loc  = item.locations?.name ?? '—';
-
-        const chars = opts.map(o => {
-          const co = o.characteristics_options;
-          const pc = prod?.product_characteristics.find(
-            pc => pc.characteristics_id === co?.characteristics_id
-          );
-          return `${pc?.name ?? 'Cualquiera'}: ${co?.values}`;
-        });
-
-        return {
-          id: item.id,
-          variant_id: item.variant_id,
-          productName: prod?.name ?? '—',
-          quantity: item.stock,
-          entryDate: new Date(item.added_at).toLocaleDateString(),
-          ubicacion_nombre: loc,
-          caracteristicas: chars
-        };
-      });
-
+      console.log('Datos de inventario formateados:', formatted);
       setInventory(formatted);
     } catch (err: any) {
       console.error(err);
@@ -204,7 +181,7 @@ const InventarioContent: React.FC = () => {
           </div>
           <div className="flex items-baseline">
             <span className="text-3xl font-bold text-gray-900">
-              {inventory.reduce((sum, item) => sum + item.quantity, 0)}
+              {inventory.reduce((sum, item) => sum + Number(item.total_stock || 0), 0)}
             </span>
             <span className="ml-2 text-sm text-gray-500">unidades</span>
           </div>
@@ -219,7 +196,7 @@ const InventarioContent: React.FC = () => {
           </div>
           <div className="flex items-baseline">
             <span className="text-3xl font-bold text-gray-900">
-              {inventory.filter(item => item.quantity > 0).length}
+              {inventory.filter(item => item.total_stock > 0).length}
             </span>
             <span className="ml-2 text-sm text-gray-500">productos</span>
           </div>
@@ -235,7 +212,7 @@ const InventarioContent: React.FC = () => {
           </div>
           <div className="flex items-baseline">
             <span className="text-3xl font-bold text-gray-900">
-              {inventory.filter(item => item.quantity === 0).length}
+              {inventory.filter(item => item.total_stock === 0).length}
             </span>
             <span className="ml-2 text-sm text-gray-500">productos</span>
           </div>
@@ -260,7 +237,7 @@ const InventarioContent: React.FC = () => {
           <table className="w-full">
             <thead>
             <tr className="bg-[#f5f5f5] text-center">
-              {['Producto', 'Características', 'Cantidad', 'Ubicación', 'Fecha', 'Ver más'].map(h => (
+              {['Producto', 'Atributos', 'Stock', 'Ver más'].map(h => (
                 <th key={h} className="px-3 py-3 text-xs font-medium text-[#667085] uppercase tracking-wider">
                   {h}
                 </th>
@@ -269,15 +246,20 @@ const InventarioContent: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-[#e6e6e6] text-center">
             {pageData.map(item => (
-              <tr key={item.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085] capitalize">{item.productName}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]  capitalize">{item.caracteristicas.join(', ')}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">{item.quantity}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]  capitalize">{item.ubicacion_nombre}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">{item.entryDate}</td>
+              <tr key={item.product_id}>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">
+                  {item.product_name}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">
+                  {item.attributes}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">
+                  {item.total_stock}
+                </td>
+  
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <button
-                    onClick={() => router.push(`/dashboard/inventario/${item.id}`)}
+                    onClick={() => router.push(`/dashboard/inventario/${item.product_id}`)}
                     className="text-indigo-600 hover:text-indigo-900"
                   >
                     <Eye className="w-4 h-4 mx-auto" />

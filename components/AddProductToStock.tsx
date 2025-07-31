@@ -464,7 +464,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
         title: "¡Éxito!",
         description: "Stock agregado correctamente",
       });
-      onSaveStock();
+      //onSaveStock();
       // limpiar campos
       setSelectedProductId(null);
       setSelectedOptions({});
@@ -472,7 +472,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
       setPrice('');
       setEntryDate('');
       setSelectedLocationId(null);
-      onClose();
+      //onClose();
     } catch (error: any) {
       console.error("Error detallado en handleSaveStock:", error);
       toast({

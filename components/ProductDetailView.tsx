@@ -73,6 +73,8 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
   const { id: productId } = useParams<{ id: string }>();
   //const productIdFromParams = params?.productId || params?.id;
   //const productId = Array.isArray(productIdFromParams) ? productIdFromParams[0] : productIdFromParams;
+  const [variantTable, setVariantTable] = useState<{ title: string; stock: number }[]>([]);
+
   const { toast } = useToast();
   const [product, setProduct] = useState<InventoryItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -124,7 +126,7 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
           .eq('id', productId)
           .single()
           .returns<SupabaseStockItem>();
-          console.log("Iddddd", productId)
+          console.log("Iddddd", data)
 
         if (supaErr) throw supaErr;
 
@@ -164,7 +166,9 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
         }
       } catch (err: any) {
         console.error(err);
+        return []
         setError(err.message);
+         
       } finally {
         setLoading(false);
       }
@@ -173,6 +177,39 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
     loadProductDetails();
   }, [productId, router ]);
 
+  useEffect(() => {
+  const loadVariantStockTable = async () => {
+    if (!productId) return;
+    try {
+      const { data, error } = await supabase.rpc('get_product_variants_with_stock', {
+        product_id_param: productId
+      })
+
+    if (error) {
+      console.error('Error:', error)
+      return []
+    }
+    if (!data || data.length === 0) {
+      setVariantTable([]);
+      return;
+    }
+    console.log('Data received:', data);
+    const variants = data.map((item: any) => ({
+      title: item.variant_title || 'Sin título',
+      stock: item.total_stock || 0
+    }));
+
+    setVariantTable(variants);
+    return data
+  } catch (error) {
+    console.error('Error inesperado:', error)
+    return []
+  }
+
+  };
+
+  loadVariantStockTable();
+}, [productId]);
   // Function to handle entering edit mode
   const handleEditClick = () => {
     setIsEditing(true);
@@ -389,6 +426,27 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
               </ul>
             </div>
           )}
+          {variantTable.length > 0 && (
+  <div className="mt-6">
+    <h2 className="text-lg font-semibold mb-2">Variantes del producto</h2>
+    <table className="w-full text-left border">
+      <thead>
+        <tr>
+          <th className="border px-4 py-2">Combinación</th>
+          <th className="border px-4 py-2">Stock</th>
+        </tr>
+      </thead>
+      <tbody>
+        {variantTable.map((variant, index) => (
+          <tr key={index}>
+            <td className="border px-4 py-2">{variant.title}</td>
+            <td className="border px-4 py-2">{variant.stock}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
 
           {updateError && (
             <div className="text-red-500 my-2">{updateError}</div>
