@@ -16,11 +16,13 @@ export interface Ubicacion { id: number; name: string; }
 
 interface AddProductToStockProps {
   initialProductId?: number;
+  initialLocationId?: number;
+  hideProductSelect?: boolean;
   onSaveStock: () => void;
   onClose: () => void;
 }
 
-const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, onSaveStock, onClose }) => {
+const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId, initialLocationId, hideProductSelect = false, onSaveStock, onClose }) => {
   const { toast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(initialProductId ?? null);
@@ -37,12 +39,13 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
   const [price, setPrice] = useState<number | string>('');
   const [priceError, setPriceError] = useState<string>('');
   const [existingPrice, setExistingPrice] = useState<number | null>(null);
+  const [currentStock, setCurrentStock] = useState<number>(0);
 
   const [entryDate, setEntryDate] = useState<string>('');
   const [dateError, setDateError] = useState<string>('');
 
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
-  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(initialLocationId ?? null);
   const [locationError, setLocationError] = useState<string>('');
 
   const [isLoading, setIsLoading] = useState(false);
@@ -101,9 +104,11 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
         } else {
           setExistingPrice(null);
         }
+        setCurrentStock(stockCheck?.stock ?? 0);
       } catch (error) {
         console.error("Error in checkExistingStock:", error);
         setExistingPrice(null);
+        setCurrentStock(0);
       }
     }
 
@@ -190,6 +195,9 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
           .eq('user_id', userId);
         if (ubicacionesError) throw ubicacionesError;
         setUbicaciones(ubicacionesData || []);
+        if (initialLocationId && (ubicacionesData || []).some(u => u.id === initialLocationId)) {
+          setSelectedLocationId(initialLocationId);
+        }
       } catch (error: any) {
         console.error('Error cargando datos iniciales:', error);
         toast({
@@ -485,41 +493,54 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
     }
   };
 
+  const decrementQty = () => {
+    const val = parseInt(quantity.toString() || '0', 10);
+    const next = Math.max(0, val - 1);
+    setQuantity(next);
+  };
+
+  const incrementQty = () => {
+    const val = parseInt(quantity.toString() || '0', 10);
+    const next = val + 1;
+    setQuantity(next);
+  };
+
   return (
-    <div>
-      <Card className="w-full">
-        <CardContent className="p-6">
-          <h1 className="text-lg font-semibold capitalize">Agregar Inventario</h1>
+    <Card className="w-full">
+      <CardContent className="p-6">
+          <h1 className="text-lg font-semibold">Agregar inventario:</h1>
 
-          {/* Producto */}
-          <div className="my-4">
-            <Label htmlFor="product-select">Producto</Label>
-            <select
-              id="product-select"
-              className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
-              value={selectedProductId ?? ""}
-              onChange={e => setSelectedProductId(e.target.value ? parseInt(e.target.value, 10) : null)}
-              disabled={isLoading}
-            >
-              <option value="" disabled>
-                {isLoading ? "Cargando productos..." : "Selecciona un producto"}
-              </option>
-              {products.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            {productError && <p className="text-red-600 text-sm mt-1">{productError}</p>}
-          </div>
+          {/* Producto (opcional) */}
+          {!hideProductSelect && (
+            <div className="my-4">
+              <Label htmlFor="product-select">Producto</Label>
+              <select
+                id="product-select"
+                className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
+                value={selectedProductId ?? ""}
+                onChange={e => setSelectedProductId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                disabled={isLoading}
+              >
+                <option value="" disabled>
+                  {isLoading ? "Cargando productos..." : "Selecciona un producto"}
+                </option>
+                {products.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              {productError && <p className="text-red-600 text-sm mt-1">{productError}</p>}
+            </div>
+          )}
 
-          {/* Atributos y opciones */}
-          {attributes.length > 0 && (
-            <div className="mb-4 border p-4 rounded-md">
-              <h2 className="font-semibold mb-2">Selecciona Opciones</h2>
+          {/* Selección de atributos y sucursal */}
+          <div className="mb-4 border p-4 rounded-md">
+            <h2 className="font-semibold mb-2">Selecciona la combinación de atributos del producto al que quieres agregar inventario:</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {attributes.map(attr => {
                 const opts = attributeOptions[attr.characteristics_id] || [];
                 const sel = selectedOptions[attr.characteristics_id] ?? "";
                 return (
-                  <div key={attr.characteristics_id} className="mb-3">
+                  <div key={attr.characteristics_id}>
                     <Label htmlFor={`attr-${attr.characteristics_id}`}>{attr.name}</Label>
                     <select
                       id={`attr-${attr.characteristics_id}`}
@@ -540,53 +561,54 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
                   </div>
                 );
               })}
-              {optionsError && <p className="text-red-600 text-sm mt-1">{optionsError}</p>}
+              {/* Sucursal selector as third column */}
+              <div>
+                <Label htmlFor="location-select">Sucursal</Label>
+                <select
+                  id="location-select"
+                  className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
+                  value={selectedLocationId ?? ""}
+                  onChange={e => setSelectedLocationId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                  disabled={isLoading || ubicaciones.length === 0}
+                >
+                  <option value="" disabled>
+                    {isLoading && ubicaciones.length === 0
+                      ? "Cargando sucursales..."
+                      : "Selecciona una sucursal"}
+                  </option>
+                  {ubicaciones.map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
+                </select>
+                {locationError && <p className="text-red-600 text-sm mt-1">{locationError}</p>}
+              </div>
             </div>
-          )}
-
-          {/* Ubicación */}
-          <div className="mb-4">
-            <Label htmlFor="location-select">Ubicación</Label>
-            <select
-              id="location-select"
-              className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
-              value={selectedLocationId ?? ""}
-              onChange={e => setSelectedLocationId(e.target.value ? parseInt(e.target.value, 10) : null)}
-              disabled={isLoading || ubicaciones.length === 0}
-            >
-              <option value="" disabled>
-                {isLoading && ubicaciones.length === 0
-                  ? "Cargando ubicaciones..."
-                  : "Selecciona una ubicación"}
-              </option>
-              {ubicaciones.map(loc => (
-                <option key={loc.id} value={loc.id}>{loc.name}</option>
-              ))}
-            </select>
-            {locationError && <p className="text-red-600 text-sm mt-1">{locationError}</p>}
+            {optionsError && <p className="text-red-600 text-sm mt-2">{optionsError}</p>}
           </div>
 
           {/* Cantidad */}
           <div className="mb-4">
-            <Label htmlFor="quantity">Cantidad a agregar</Label>
-            <Input
-              id="quantity"
-              type="number"
-              value={quantity}
-              onChange={e => setQuantity(e.target.value)}
-              placeholder="Cantidad"
-              className="mt-1"
-              disabled={isLoading}
-              min={1}
-            />
+            <Label>Cantidad de producto que quieras agregar de la combinación seleccionada:</Label>
+            <div className="mt-1 flex items-center gap-2">
+              <button type="button" onClick={decrementQty} className="w-9 h-9 border rounded grid place-items-center">-</button>
+              <Input
+                id="quantity"
+                type="number"
+                value={quantity}
+                onChange={e => setQuantity(e.target.value)}
+                className="w-24 text-center"
+                disabled={isLoading}
+                min={0}
+              />
+              <button type="button" onClick={incrementQty} className="w-9 h-9 border rounded grid place-items-center">+</button>
+            </div>
+            <p className="text-xs text-red-600 mt-1">Existencia: {currentStock}</p>
             {quantityError && <p className="text-red-600 text-sm mt-1">{quantityError}</p>}
           </div>
 
           {/* Precio */}
           <div className="mb-4">
-            <Label htmlFor="price">
-              {existingPrice !== null ? "Precio (valor existente)" : "Precio"}
-            </Label>
+            <Label htmlFor="price">Introduce precio unitario del producto:</Label>
             <div className="relative">
               <Input
                 id="price"
@@ -626,7 +648,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
 
           {/* Fecha de entrada */}
           <div className="mb-4">
-            <Label htmlFor="entry-date">Fecha de entrada</Label>
+            <Label htmlFor="entry-date">Introduce la fecha de ingreso del inventario por agregar:</Label>
             <Input
               id="entry-date"
               type="date"
@@ -637,7 +659,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
             {dateError && <p className="text-red-600 text-sm mt-1">{dateError}</p>}
           </div>
 
-          <div className="flex justify-end gap-4 mt-6">
+          <div className="flex justify-center gap-4 mt-6">
             <Button variant="outline" onClick={onClose} disabled={isLoading}>
               Cancelar
             </Button>
@@ -649,9 +671,8 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, 
               {isLoading ? 'Actualizando...' : 'Guardar'}
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+      </CardContent>
+    </Card>
   );
 };
 
