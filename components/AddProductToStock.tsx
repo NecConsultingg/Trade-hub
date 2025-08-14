@@ -510,7 +510,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
         title: "¡Éxito!",
         description: "Inventario agregado para las variantes seleccionadas",
       });
-      onSaveStock();
+      //onSaveStock();
       // limpiar campos
       setSelectedProductId(initialProductId ?? null);
       setRows(attributes.length > 0 ? [createEmptyRow(attributes)] : []);

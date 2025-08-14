@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +39,37 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
   const [attributes, setAttributes] = useState<Attribute[]>([{ name: '', options: [''] }]);
   const [attributeErrors, setAttributeErrors] = useState<string[]>([]);
 
+
+  useEffect(() => {
+  const checkProductNameExists = async () => {
+    const userId = await getUserId();
+
+    if (productName.trim() === '') {
+      setProductNameError('');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('products')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('name', productName.trim());
+
+    if (error) {
+      console.error('Error checking product name:', error);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      setProductNameError('Este nombre de producto ya existe.');
+    } else {
+      setProductNameError('');
+    }
+  };
+
+  checkProductNameExists();
+}, [productName]);
+
   const validateForm = () => {
     let valid = true;
 
@@ -48,6 +79,9 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
       valid = false;
     } else if (productName.length > 30) {
       setProductNameError('El nombre del producto no puede exceder los 30 caracteres.');
+      valid = false;
+    }else if (productNameError) {
+      // Ya se encontró que existe, entonces no permitir
       valid = false;
     } else {
       setProductNameError('');
