@@ -80,10 +80,13 @@ const ProductStockAddView: React.FC = () => {
           const opts = v?.optionVariants || [];
           for (const ov of opts) {
             const cc = ov?.characteristics_options;
-            if (!cc) continue;
-            const cid = cc.characteristics_id as number;
-            if (!optionSets[cid]) optionSets[cid] = new Set<string>();
-            if (cc.values) optionSets[cid].add(cc.values);
+            if (!cc || !Array.isArray(cc)) continue;
+            for (const charOpt of cc) {
+              if (!charOpt?.characteristics_id) continue;
+              const cid = charOpt.characteristics_id as number;
+              if (!optionSets[cid]) optionSets[cid] = new Set<string>();
+              if (charOpt.values) optionSets[cid].add(charOpt.values);
+            }
           }
         }
         setOptionValuesByCharId(optionSets);
