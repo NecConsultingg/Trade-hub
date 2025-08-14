@@ -15,14 +15,15 @@ export interface OptionData { id: number; value: string; }
 export interface Ubicacion { id: number; name: string; }
 
 interface AddProductToStockProps {
+  initialProductId?: number;
   onSaveStock: () => void;
   onClose: () => void;
 }
 
-const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onClose }) => {
+const AddProductToStock: React.FC<AddProductToStockProps> = ({initialProductId, onSaveStock, onClose }) => {
   const { toast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(initialProductId ?? null);
   const [productError, setProductError] = useState<string>('');
 
   const [attributes, setAttributes] = useState<Attribute[]>([]);
@@ -463,7 +464,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
         title: "¡Éxito!",
         description: "Stock agregado correctamente",
       });
-      onSaveStock();
+      //onSaveStock();
       // limpiar campos
       setSelectedProductId(null);
       setSelectedOptions({});
@@ -471,7 +472,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
       setPrice('');
       setEntryDate('');
       setSelectedLocationId(null);
-      onClose();
+      //onClose();
     } catch (error: any) {
       console.error("Error detallado en handleSaveStock:", error);
       toast({
