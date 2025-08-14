@@ -9,6 +9,9 @@ export default function AgregarProductoPage() {
   // lee el productId si viene en ?productId=123
   const productIdParam = params.get('productId');
   const initialProductId = productIdParam ? parseInt(productIdParam, 10) : undefined;
+  // lee optional locationId si viene en ?locationId=123
+  const locationIdParam = params.get('locationId');
+  const initialLocationId = locationIdParam ? parseInt(locationIdParam, 10) : undefined;
 
 
   return (
@@ -16,6 +19,8 @@ export default function AgregarProductoPage() {
     <AddProductToStock
       // le pasamos el id si lo hay, si no será undefined y el usuario lo elige manualmente
       initialProductId={initialProductId}
+      initialLocationId={initialLocationId}
+      hideLocationSelect={Boolean(initialLocationId)}
       onClose={() => router.push('/dashboard/inventario')}
       onSaveStock={() => router.push('/dashboard/inventario')}
     />

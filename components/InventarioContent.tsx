@@ -14,6 +14,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { getUserId } from '@/lib/userId';
 import { useRouter } from 'next/navigation';
+import LocationSelector from '@/components/locationSelection';
 
 interface InventoryItem {
   id: number;
@@ -83,6 +84,7 @@ const InventarioContent: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showLocationSelector, setShowLocationSelector] = useState(false);
 
   const itemsPerPage = 6;
 
@@ -145,6 +147,10 @@ const InventarioContent: React.FC = () => {
     );
   }
 
+  const handleOpenAvailableProducts = () => {
+    setShowLocationSelector(true);
+  };
+
   return (
     <main className="flex-1 overflow-y-auto m-3 bg-[#f5f5f5] pb-10">
       <div className="flex justify-between gap-4 mb-6">
@@ -157,7 +163,7 @@ const InventarioContent: React.FC = () => {
             Crear producto
           </button>
           <button
-            onClick={() => router.push('/dashboard/inventario/agregarinventario')}
+            onClick={handleOpenAvailableProducts}
             className='px-3 py-3 flex items-center gap-2 rounded-sm bg-[#1366D9] text-white shadow-lg hover:bg-[#0d4ea6] transition-colors'
           >
             <Plus className="inline-block w-4 h-4 mr-1" />
@@ -172,6 +178,18 @@ const InventarioContent: React.FC = () => {
           Editar Productos
         </button>
       </div>
+
+      {showLocationSelector && (
+        <LocationSelector
+          isOpen={true}
+          onClose={() => setShowLocationSelector(false)}
+          onLocationSelected={() => { /* keep for compatibility, we route on continue */ }}
+          onContinue={(locationId) => {
+            setShowLocationSelector(false);
+            router.push(`/dashboard/sucursales/${locationId}/disponibles`);
+          }}
+        />
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         {/* Total Inventory Card */}
         <div className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow duration-200">
