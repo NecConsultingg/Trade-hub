@@ -17,11 +17,11 @@ export async function DELETE(request: Request) {
       );
     }
 
-    // Create a Supabase client with admin privileges
+    // Create a Supabase client with user authentication
     const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           get(name: string) {
@@ -30,6 +30,34 @@ export async function DELETE(request: Request) {
         },
       }
     );
+
+    // Get the authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Usuario no autenticado' },
+        { status: 401 }
+      );
+    }
+
+    // Get the user's effective ID (admin's ID for employees)
+    const { data: effectiveUserId, error: effectiveError } = await supabase.rpc('get_effective_user_id', {
+      auth_user_id: user.id
+    });
+    if (effectiveError || !effectiveUserId) {
+      return NextResponse.json(
+        { error: 'Error al obtener ID de usuario efectivo' },
+        { status: 500 }
+      );
+    }
+
+    // Verify the authenticated user is trying to delete their own business
+    if (effectiveUserId !== businessId) {
+      return NextResponse.json(
+        { error: 'No autorizado para eliminar este negocio' },
+        { status: 403 }
+      );
+    }
 
     // First get the business data using id (UUID)
     console.log('Fetching business data for ID:', businessId);
@@ -79,9 +107,12 @@ export async function DELETE(request: Request) {
     // 4. Características y opciones
     await supabase.from('characteristics_options').delete().in(
       'characteristics_id',
-      (await supabase.from('product_characteristics').select('characteristics_id')).data?.map(c => c.characteristics_id) || []
+      (await supabase.from('product_characteristics').select('characteristics_id').eq('product_id', (await supabase.from('products').select('id').eq('user_id', userId)).data?.map(p => p.id) || [])).data?.map(c => c.characteristics_id) || []
     );
-    await supabase.from('product_characteristics').delete();
+    await supabase.from('product_characteristics').delete().in(
+      'product_id',
+      (await supabase.from('products').select('id').eq('user_id', userId)).data?.map(p => p.id) || []
+    );
 
     // 5. Productos
     await supabase.from('products').delete().eq('user_id', userId);
@@ -112,10 +143,11 @@ export async function DELETE(request: Request) {
           );
         }
         console.log('Auth user deleted successfully');
-      } catch (authError: any) {
+      } catch (authError: unknown) {
+        const errorMessage = authError instanceof Error ? authError.message : 'Error desconocido';
         console.error('Error during auth user deletion:', authError);
         return NextResponse.json(
-          { error: `Error al eliminar el usuario de autenticación: ${authError.message}` },
+          { error: `Error al eliminar el usuario de autenticación: ${errorMessage}` },
           { status: 400 }
         );
       }
@@ -145,11 +177,13 @@ export async function DELETE(request: Request) {
         name: businessData.name
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+    const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('Unexpected error in delete-business:', error);
     return NextResponse.json({ 
-      error: error.message,
-      details: error.stack
+      error: errorMessage,
+      details: errorStack
     }, { status: 500 });
   }
 } 

@@ -48,7 +48,11 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
   const [attributeOptions, setAttributeOptions] = useState<Record<number, OptionData[]>>({});
   const [rows, setRows] = useState<VariantRow[]>([]);
 
-  const [entryDate, setEntryDate] = useState<string>('');
+  const [entryDate, setEntryDate] = useState<string>(() => {
+    // Set default date to today
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [dateError, setDateError] = useState<string>('');
 
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
@@ -156,7 +160,8 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
         if (initialLocationId && (ubicacionesData || []).some(u => u.id === initialLocationId)) {
           setSelectedLocationId(initialLocationId);
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
         console.error('Error cargando datos iniciales:', error);
         toast({
           variant: "destructive",
@@ -190,7 +195,8 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
         setAttributeOptions({});
         // Reset rows with the new attributes
         setRows([createEmptyRow(data || [])]);
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
         console.error("Error fetching attributes:", error);
         setAttributes([]);
       } finally {
@@ -239,7 +245,8 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
             return { ...r, selectedOptions: nextSelected };
           });
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
         console.error("Unexpected error fetching attribute options:", error);
       } finally {
         setIsLoading(false);
@@ -510,19 +517,31 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
         title: "¡Éxito!",
         description: "Inventario agregado para las variantes seleccionadas",
       });
-      //onSaveStock();
-      // limpiar campos
-      setSelectedProductId(initialProductId ?? null);
-      setRows(attributes.length > 0 ? [createEmptyRow(attributes)] : []);
-      setEntryDate('');
-      setSelectedLocationId(initialLocationId ?? null);
-      onClose();
-    } catch (error: any) {
+      
+      // Don't reset the form - keep it open for bulk operations
+      // Only reset if explicitly requested
+      if (initialProductId) {
+        // If we have a specific product, keep the form open for more variants
+        setRows(attributes.length > 0 ? [createEmptyRow(attributes)] : []);
+        // Keep the same product and location selected
+        // Keep the same date
+      } else {
+        // If no initial product, reset everything
+        setSelectedProductId(null);
+        setRows(attributes.length > 0 ? [createEmptyRow(attributes)] : []);
+        setEntryDate(new Date().toISOString().split('T')[0]);
+        setSelectedLocationId(null);
+      }
+      
+      // Don't close automatically - let user continue adding more variants
+      // onClose();
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       console.error("Error detallado en handleSaveStock:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Error al guardar el stock. Por favor, intenta de nuevo.",
+        description: errorMessage || "Error al guardar el stock. Por favor, intenta de nuevo.",
       });
     } finally {
       setIsLoading(false);
@@ -699,6 +718,16 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
             >
               {isLoading ? 'Actualizando...' : 'Guardar'}
             </Button>
+            {initialProductId && (
+              <Button 
+                variant="ghost" 
+                onClick={onClose} 
+                disabled={isLoading}
+                className="text-gray-600"
+              >
+                Cerrar
+              </Button>
+            )}
           </div>
       </CardContent>
     </Card>

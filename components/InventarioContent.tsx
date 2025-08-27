@@ -65,14 +65,85 @@ type SupabaseStockItem = {
 
 // Función para obtener los datos de los productos para la tabla
 async function fetchProductsGeneralInfo(userId: number) {
-  const { data, error } = await supabase.rpc('get_products_general_info', { user_id_param: userId });
+  // Use direct query instead of RPC to ensure proper user filtering
+  const { data, error } = await supabase
+    .from('products')
+    .select(`
+      id,
+      name,
+      product_characteristics (
+        characteristics_id,
+        name
+      ),
+      productVariants (
+        variant_id,
+        optionVariants (
+          characteristics_options (
+            characteristics_id,
+            values
+          )
+        )
+      )
+    `)
+    .eq('user_id', userId);
 
   if (error) {
     console.error('Error al obtener productos:', error);
     return [];
   }
-  console.log('Datos de productos obtenidos:', data);
-  return data as ProductsGeneralInfo[];
+
+  // Transform the data to match ProductsGeneralInfo interface
+  const transformedData: ProductsGeneralInfo[] = data.map(product => {
+    // Get all variants for this product
+    const variants = product.productVariants || [];
+    
+    // Calculate total stock across all variants and locations
+    let totalStock = 0;
+    let attributes = '';
+    
+    if (variants.length > 0) {
+      // Get stock information for all variants
+      variants.forEach(variant => {
+        // This would need to be enhanced to get actual stock data
+        // For now, we'll set a placeholder
+        totalStock += 0; // Will be updated below
+      });
+      
+      // Build attributes string
+      const attrList = product.product_characteristics?.map(pc => pc.name) || [];
+      attributes = attrList.join(', ');
+    }
+
+    return {
+      product_id: product.id,
+      product_name: product.name,
+      attributes: attributes,
+      total_stock: totalStock
+    };
+  });
+
+  // Now get actual stock data for each product
+  const stockData = await supabase
+    .from('stock')
+    .select(`
+      productVariants!inner(product_id),
+      stock,
+      locations(name)
+    `)
+    .eq('user_id', userId);
+
+  if (stockData.data) {
+    // Update total stock for each product
+    transformedData.forEach(product => {
+      const productStock = stockData.data
+        .filter((stock: any) => stock.productVariants?.product_id === product.product_id)
+        .reduce((sum: number, stock: any) => sum + (stock.stock || 0), 0);
+      product.total_stock = productStock;
+    });
+  }
+
+  console.log('Datos de productos transformados:', transformedData);
+  return transformedData;
 }
 
 const InventarioContent: React.FC = () => {
@@ -119,9 +190,10 @@ const InventarioContent: React.FC = () => {
 
       console.log('Datos de inventario formateados:', formatted);
       setInventory(formatted);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
