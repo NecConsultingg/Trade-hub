@@ -485,16 +485,16 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
           </div>
           {/* ———— Aquí insertas tu Modal personalizado ———— */}
         <Modal open={showModal} onClose={() => setShowModal(false)}>
-          <h2 className="text-xl font-semibold mb-2">Producto creado 🎉</h2>
+          <h2 className="text-xl font-semibold mb-2">Producto creado</h2>
           <p className="mb-6 text-gray-600">¿Deseas agregar inventario de este producto?</p>
           <div className="flex flex-col gap-3">
             <Button
-              onClick={() =>
-                router.push(
-                  `/dashboard/inventario/agregarinventario?productId=${newProductId}`
-                )
-              }
-              className="w-full"
+              onClick={() => {
+                setShowModal(false);
+                // Open location selector for this product
+                router.push(`/dashboard/inventario/agregarinventario?productId=${newProductId}`);
+              }}
+              className="w-full bg-blue-500 hover:bg-blue-600"
             >
               Si
             </Button>

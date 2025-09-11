@@ -27,6 +27,28 @@ interface Product {
   variants: Variant[];
 }
 
+interface ProductCharacteristic {
+  characteristics_id: number;
+  name: string;
+}
+
+interface ProductVariant {
+  variant_id: number;
+  optionVariants: {
+    characteristics_options: {
+      characteristics_id: number;
+      values: string;
+    };
+  }[];
+}
+
+interface OptionVariant {
+  characteristics_options: {
+    characteristics_id: number;
+    values: string;
+  };
+}
+
 const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => {
   const resolvedParams = React.use(params);
   const router = useRouter();
@@ -73,13 +95,13 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
       const formattedProduct: Product = {
         id: data.id,
         name: data.name,
-        characteristics: data.product_characteristics.map((pc: any) => ({
+        characteristics: data.product_characteristics.map((pc: ProductCharacteristic) => ({
           characteristics_id: pc.characteristics_id,
           name: pc.name
         })),
-        variants: data.productVariants.map((variant: any) => ({
+        variants: data.productVariants.map((variant: ProductVariant) => ({
           variant_id: variant.variant_id,
-          options: variant.optionVariants.map((opt: any) => ({
+          options: variant.optionVariants.map((opt: OptionVariant) => ({
             characteristics_id: opt.characteristics_options.characteristics_id,
             value: opt.characteristics_options.values
           }))
@@ -87,9 +109,10 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
       };
 
       setProduct(formattedProduct);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -128,9 +151,10 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
       }
 
       router.push('/dashboard/inventario/editarproductos');
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -165,9 +189,10 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
         ]
       });
       setNewCharacteristic('');
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     }
   };
 
@@ -175,6 +200,33 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
     if (!product) return;
 
     try {
+      const userId = await getUserId();
+      if (!userId) throw new Error('Usuario no autenticado');
+
+      // Verify the characteristic belongs to a product owned by the user
+      const { data: characteristic, error: verifyError } = await supabase
+        .from('product_characteristics')
+        .select('characteristics_id, product_id')
+        .eq('characteristics_id', characteristics_id)
+        .eq('product_id', product.id)
+        .single();
+
+      if (verifyError || !characteristic) {
+        throw new Error('Característica no encontrada');
+      }
+
+      // Verify the product belongs to the user
+      const { data: productOwner, error: ownerError } = await supabase
+        .from('products')
+        .select('id')
+        .eq('id', product.id)
+        .eq('user_id', userId)
+        .single();
+
+      if (ownerError || !productOwner) {
+        throw new Error('No autorizado para modificar este producto');
+      }
+
       const { error } = await supabase
         .from('product_characteristics')
         .delete()
@@ -187,9 +239,10 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
         ...product,
         characteristics: product.characteristics.filter(c => c.characteristics_id !== characteristics_id)
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     }
   };
 
@@ -240,9 +293,10 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
       // Refresh the product data
       await loadProduct();
       setNewVariant({ options: [] });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     }
   };
 
@@ -250,6 +304,33 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
     if (!product) return;
 
     try {
+      const userId = await getUserId();
+      if (!userId) throw new Error('Usuario no autenticado');
+
+      // Verify the variant belongs to a product owned by the user
+      const { data: variant, error: verifyError } = await supabase
+        .from('productVariants')
+        .select('variant_id, product_id')
+        .eq('variant_id', variant_id)
+        .eq('product_id', product.id)
+        .single();
+
+      if (verifyError || !variant) {
+        throw new Error('Variante no encontrada');
+      }
+
+      // Verify the product belongs to the user
+      const { data: productOwner, error: ownerError } = await supabase
+        .from('products')
+        .select('id')
+        .eq('id', product.id)
+        .eq('user_id', userId)
+        .single();
+
+      if (ownerError || !productOwner) {
+        throw new Error('No autorizado para modificar este producto');
+      }
+
       const { error } = await supabase
         .from('productVariants')
         .delete()
@@ -262,9 +343,10 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
         ...product,
         variants: product.variants.filter(v => v.variant_id !== variant_id)
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     }
   };
 

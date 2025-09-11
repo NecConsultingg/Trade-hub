@@ -27,6 +27,28 @@ interface Product {
   variants: Variant[];
 }
 
+interface ProductCharacteristic {
+  characteristics_id: number;
+  name: string;
+}
+
+interface ProductVariant {
+  variant_id: number;
+  optionVariants: {
+    characteristics_options: {
+      characteristics_id: number;
+      values: string;
+    };
+  }[];
+}
+
+interface OptionVariant {
+  characteristics_options: {
+    characteristics_id: number;
+    values: string;
+  };
+}
+
 const EditarProductosPage = () => {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
@@ -65,13 +87,13 @@ const EditarProductosPage = () => {
       const formattedProducts: Product[] = data.map(product => ({
         id: product.id,
         name: product.name,
-        characteristics: product.product_characteristics.map((pc: any) => ({
+        characteristics: product.product_characteristics.map((pc: ProductCharacteristic) => ({
           characteristics_id: pc.characteristics_id,
           name: pc.name
         })),
-        variants: product.productVariants.map((variant: any) => ({
+        variants: product.productVariants.map((variant: ProductVariant) => ({
           variant_id: variant.variant_id,
-          options: variant.optionVariants.map((opt: any) => ({
+          options: variant.optionVariants.map((opt: OptionVariant) => ({
             characteristics_id: opt.characteristics_options.characteristics_id,
             value: opt.characteristics_options.values
           }))
@@ -79,9 +101,10 @@ const EditarProductosPage = () => {
       }));
 
       setProducts(formattedProducts);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -93,18 +116,23 @@ const EditarProductosPage = () => {
 
   const handleDelete = async (productId: number) => {
     try {
+      const userId = await getUserId();
+      if (!userId) throw new Error('Usuario no autenticado');
+
       const { error } = await supabase
         .from('products')
         .delete()
-        .eq('id', productId);
+        .eq('id', productId)
+        .eq('user_id', userId);  // ✅ ADDED: User ID filter for security
 
       if (error) throw error;
       
       setProducts(products.filter(p => p.id !== productId));
       setDeleteConfirm(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     }
   };
 

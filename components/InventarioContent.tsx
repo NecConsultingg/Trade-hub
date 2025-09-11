@@ -14,6 +14,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { getUserId } from '@/lib/userId';
 import { useRouter } from 'next/navigation';
+import LocationSelector from '@/components/locationSelection';
 
 interface InventoryItem {
   id: number;
@@ -64,14 +65,85 @@ type SupabaseStockItem = {
 
 // Función para obtener los datos de los productos para la tabla
 async function fetchProductsGeneralInfo(userId: number) {
-  const { data, error } = await supabase.rpc('get_products_general_info', { user_id_param: userId });
+  // Use direct query instead of RPC to ensure proper user filtering
+  const { data, error } = await supabase
+    .from('products')
+    .select(`
+      id,
+      name,
+      product_characteristics (
+        characteristics_id,
+        name
+      ),
+      productVariants (
+        variant_id,
+        optionVariants (
+          characteristics_options (
+            characteristics_id,
+            values
+          )
+        )
+      )
+    `)
+    .eq('user_id', userId);
 
   if (error) {
     console.error('Error al obtener productos:', error);
     return [];
   }
-  console.log('Datos de productos obtenidos:', data);
-  return data as ProductsGeneralInfo[];
+
+  // Transform the data to match ProductsGeneralInfo interface
+  const transformedData: ProductsGeneralInfo[] = data.map(product => {
+    // Get all variants for this product
+    const variants = product.productVariants || [];
+    
+    // Calculate total stock across all variants and locations
+    let totalStock = 0;
+    let attributes = '';
+    
+    if (variants.length > 0) {
+      // Get stock information for all variants
+      variants.forEach(variant => {
+        // This would need to be enhanced to get actual stock data
+        // For now, we'll set a placeholder
+        totalStock += 0; // Will be updated below
+      });
+      
+      // Build attributes string
+      const attrList = product.product_characteristics?.map(pc => pc.name) || [];
+      attributes = attrList.join(', ');
+    }
+
+    return {
+      product_id: product.id,
+      product_name: product.name,
+      attributes: attributes,
+      total_stock: totalStock
+    };
+  });
+
+  // Now get actual stock data for each product
+  const stockData = await supabase
+    .from('stock')
+    .select(`
+      productVariants!inner(product_id),
+      stock,
+      locations(name)
+    `)
+    .eq('user_id', userId);
+
+  if (stockData.data) {
+    // Update total stock for each product
+    transformedData.forEach(product => {
+      const productStock = stockData.data
+        .filter((stock: any) => stock.productVariants?.product_id === product.product_id)
+        .reduce((sum: number, stock: any) => sum + (stock.stock || 0), 0);
+      product.total_stock = productStock;
+    });
+  }
+
+  console.log('Datos de productos transformados:', transformedData);
+  return transformedData;
 }
 
 const InventarioContent: React.FC = () => {
@@ -83,6 +155,7 @@ const InventarioContent: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showLocationSelector, setShowLocationSelector] = useState(false);
 
   const itemsPerPage = 6;
 
@@ -143,9 +216,10 @@ const InventarioContent: React.FC = () => {
 
       console.log('Datos de inventario formateados:', formatted);
       setInventory(formatted);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
       console.error(err);
-      setError(err.message);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -171,6 +245,10 @@ const InventarioContent: React.FC = () => {
     );
   }
 
+  const handleOpenAvailableProducts = () => {
+    setShowLocationSelector(true);
+  };
+
   return (
     <main className="flex-1 overflow-y-auto m-3 bg-[#f5f5f5] pb-10">
       <div className="flex justify-between gap-4 mb-6">
@@ -183,7 +261,7 @@ const InventarioContent: React.FC = () => {
             Crear producto
           </button>
           <button
-            onClick={() => router.push('/dashboard/inventario/agregarinventario')}
+            onClick={handleOpenAvailableProducts}
             className='px-3 py-3 flex items-center gap-2 rounded-sm bg-[#1366D9] text-white shadow-lg hover:bg-[#0d4ea6] transition-colors'
           >
             <Plus className="inline-block w-4 h-4 mr-1" />
@@ -198,6 +276,18 @@ const InventarioContent: React.FC = () => {
           Editar Productos
         </button>
       </div>
+
+      {showLocationSelector && (
+        <LocationSelector
+          isOpen={true}
+          onClose={() => setShowLocationSelector(false)}
+          onLocationSelected={() => { /* keep for compatibility, we route on continue */ }}
+          onContinue={(locationId) => {
+            setShowLocationSelector(false);
+            router.push(`/dashboard/sucursales/${locationId}/disponibles`);
+          }}
+        />
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
         {/* Total Inventory Card */}
         <div className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow duration-200">
