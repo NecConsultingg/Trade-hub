@@ -86,21 +86,47 @@ const InventarioContent: React.FC = () => {
 
   const itemsPerPage = 6;
 
-    // const ProductswithStock = inventory.filter(item =>
-    //   (filterStatus === 'Todos' || item.total_stock > 0) &&
-    //   item.product_name?.toLowerCase().includes(searchTerm.toLowerCase())
-    // );
+  const [rawSearch, setRawSearch] = useState('');
+    useEffect(() => {
+      const t = setTimeout(() => setSearchTerm(rawSearch), 250);
+      return () => clearTimeout(t);
+    }, [rawSearch]);
 
-  const totalPages = Math.ceil(inventory.length / itemsPerPage);
-  const pageData = inventory.slice(
+  const normalize = (s?: string) =>
+  (s ?? '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  
+   // Filtro + búsqueda antes de paginar
+  const filtered = inventory.filter((item) => {
+    const term = normalize(searchTerm);
+    if (!term) {
+      // sin término, solo aplica filtro de stock
+      return filterStatus === 'Todos' ? true : (item.total_stock ?? 0) > 0;
+    }
+
+    const hayNombre = normalize(item.product_name).includes(term);
+    const hayAttr = normalize(item.attributes).includes(term);
+
+    const matchesSearch = hayNombre || hayAttr;
+    const matchesStock =
+      filterStatus === 'Todos' ? true : (item.total_stock ?? 0) > 0;
+
+    return matchesSearch && matchesStock;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const pageData = filtered.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
   console.log('Datos de la página actual:', pageData);
 
-  useEffect(() => {
+    useEffect(() => {
     setCurrentPage(1);
-  }, [filterStatus]);
+  }, [filterStatus, searchTerm]);
 
   const toggleDropdown = () => {
     setIsDropdownOpen(open => !open);
@@ -219,72 +245,116 @@ const InventarioContent: React.FC = () => {
           <p className="mt-2 text-sm text-gray-500">Productos que necesitan reabastecimiento</p>
         </div>
       </div>
-
+      <div>
+        {/* Barra de búsqueda */}
       <input
-  type="text"
-  value={searchTerm}
-  onChange={(e) => setSearchTerm(e.target.value)}
-  placeholder="Buscar producto..."
-  className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-/>
+          type="text"
+          value={rawSearch}
+          onChange={(e) => setRawSearch(e.target.value)}
+          placeholder="Buscar producto..."
+          className="px-6 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      </div>
 
       {/* Tabla */}
       <div className="bg-white rounded-lg border border-[#e6e6e6] shadow-sm mt-8">
         <div className="px-6 py-4 border-b border-[#e6e6e6] flex justify-between items-center">
           <h2 className="text-lg font-semibold capitalize">Lista de Inventario</h2>
         </div>
+
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full table-fixed">
+            <colgroup>
+              <col className="w-[28%]" /> {/* Producto */}
+              <col className="w-[54%]" /> {/* Atributos (la grande) */}
+              <col className="w-[10%]" /> {/* Stock */}
+              <col className="w-[8%]"  /> {/* Ver más */}
+            </colgroup>
+
             <thead>
-            <tr className="bg-[#f5f5f5] text-center">
-              {['Producto', 'Atributos', 'Stock', 'Ver más'].map(h => (
-                <th key={h} className="px-3 py-3 text-xs font-medium text-[#667085] uppercase tracking-wider">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#e6e6e6] text-center">
-            {pageData.map(item => (
-              <tr key={item.product_id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">
-                  {item.product_name}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">
-                  {item.attributes}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">
-                  {item.total_stock}
-                </td>
-  
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <button
-                    onClick={() => router.push(`/dashboard/inventario/${item.product_id}`)}
-                    className="text-indigo-600 hover:text-indigo-900"
-                  >
-                    <Eye className="w-4 h-4 mx-auto" />
-                  </button>
+              <tr className="bg-[#f5f5f5] text-center">
+                {['Producto', 'Atributos', 'Stock', 'Ver más'].map(h => (
+                  <th key={h} className="px-3 py-3 text-xs font-medium text-[#667085] uppercase tracking-wider">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody className="divide-y divide-[#e6e6e6] text-center">
+              {pageData.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-6 py-8 text-sm text-[#667085]">
+                  No hay resultados para “{searchTerm}”.
                 </td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="px-6 py-4 border-t border-[#e6e6e6] flex justify-between items-center">
+            ) : (
+              pageData.map((item) => {
+                const to = `/dashboard/inventario/${item.product_id}`
+                return (
+                  <tr
+                    key={item.product_id}
+                    onClick={() => router.push(to)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        router.push(to)
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Abrir ${item.product_name}`}
+                    title="Ver detalles"
+                    className="cursor-pointer hover:bg-blue-50 focus:bg-gray-100 focus:outline-none transition-colors"
+                  >
+                    <td className="px-6 py-4 text-sm text-[#667085] truncate">
+                      <span className="inline-block max-w-full" title={item.product_name}>
+                        {item.product_name}
+                      </span>
+                    </td>
+
+                    <td
+                      className="px-6 py-4 text-sm text-[#667085] whitespace-normal break-words text-center"
+                      title={item.attributes}
+                    >
+                      <div className="max-h-24 overflow-auto pr-1">
+                        {item.attributes || '—'}
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4 text-sm text-[#667085]">
+                      {item.total_stock}
+                    </td>
+
+                    {/* Ícono decorativo (no botón) */}
+                    <td className="px-6 py-4 text-sm">
+                      <Eye className="w-4 h-4 mx-auto opacity-70" aria-hidden="true" />
+                    </td>
+                  </tr>
+                )
+              })
+            )}
+
+            </tbody>
+          </table>
+
+          {/* Paginación */}
+          <div className="px-6 py-4 border-t border-[#e6e6e6] flex justify-between items-center">
             <button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1}
               className={`border-2 px-3 py-2 flex items-center gap-2 rounded-sm ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <ChevronLeft className="w-4 h-4" /> Anterior
-              </button>
-              <span className="text-xs font-medium text-[#667085] uppercase tracking-wider">
-                Página {currentPage} de {totalPages}
-              </span> 
-              <button
+            >
+              <ChevronLeft className="w-4 h-4" /> Anterior
+            </button>
+            <span className="text-xs font-medium text-[#667085] uppercase tracking-wider">
+              Página {Math.min(currentPage, totalPages)} de {totalPages}
+            </span>
+            <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages}
               className={`border-2 px-3 py-2 flex items-center gap-2 rounded-sm ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
+            >
               Siguiente <ChevronRight className="w-4 h-4" />
             </button>
           </div>
