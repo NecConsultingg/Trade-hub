@@ -38,7 +38,7 @@ interface ProductVariant {
     characteristics_options: {
       characteristics_id: number;
       values: string;
-    };
+    }[];
   }[];
 }
 
@@ -46,7 +46,7 @@ interface OptionVariant {
   characteristics_options: {
     characteristics_id: number;
     values: string;
-  };
+  }[];
 }
 
 const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => {
@@ -101,10 +101,10 @@ const EditarProductoPage = ({ params }: { params: Promise<{ id: string }> }) => 
         })),
         variants: data.productVariants.map((variant: ProductVariant) => ({
           variant_id: variant.variant_id,
-          options: variant.optionVariants.map((opt: OptionVariant) => ({
-            characteristics_id: opt.characteristics_options.characteristics_id,
-            value: opt.characteristics_options.values
-          }))
+          options: variant.optionVariants.flatMap(opt => opt.characteristics_options.map(co => ({
+            characteristics_id: co.characteristics_id,
+            value: co.values
+          })))
         }))
       };
 
