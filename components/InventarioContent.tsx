@@ -358,12 +358,11 @@ const InventarioContent: React.FC = () => {
               <col className="w-[28%]" /> {/* Producto */}
               <col className="w-[54%]" /> {/* Atributos (la grande) */}
               <col className="w-[10%]" /> {/* Stock */}
-              <col className="w-[8%]"  /> {/* Ver más */}
             </colgroup>
 
             <thead>
               <tr className="bg-[#f5f5f5] text-center">
-                {['Producto', 'Atributos', 'Stock', 'Ver más'].map(h => (
+                {['Producto', 'Atributos', 'Stock'].map(h => (
                   <th key={h} className="px-3 py-3 text-xs font-medium text-[#667085] uppercase tracking-wider">
                     {h}
                   </th>
@@ -414,11 +413,6 @@ const InventarioContent: React.FC = () => {
 
                     <td className="px-6 py-4 text-sm text-[#667085]">
                       {item.total_stock}
-                    </td>
-
-                    {/* Ícono decorativo (no botón) */}
-                    <td className="px-6 py-4 text-sm">
-                      <Eye className="w-4 h-4 mx-auto opacity-70" aria-hidden="true" />
                     </td>
                   </tr>
                 )
