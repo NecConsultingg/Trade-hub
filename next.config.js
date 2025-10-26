@@ -4,7 +4,7 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   // Configure webpack to handle @react-pdf/renderer properly
-  webpack: (config: any, { isServer }: { isServer: boolean }) => {
+  webpack: (config, { isServer }) => {
     // Handle ESM modules properly
     config.experiments = {
       ...config.experiments,
