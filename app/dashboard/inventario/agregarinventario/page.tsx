@@ -1,7 +1,6 @@
 'use client';
 import AddProductToStock from '@/components/AddProductToStock';
 import { useRouter, useSearchParams } from 'next/navigation';
-
 import { Suspense } from 'react';
 
 export default function AgregarProductoPage() {
@@ -10,7 +9,6 @@ export default function AgregarProductoPage() {
   // lee el productId si viene en ?productId=123
   const productIdParam = params.get('productId');
   const initialProductId = productIdParam ? parseInt(productIdParam, 10) : undefined;
-
 
   return (
     <Suspense fallback={<div>Loading...</div>}>
@@ -23,4 +21,5 @@ export default function AgregarProductoPage() {
         />
       </div>
     </Suspense>
-  );}
+  );
+}
