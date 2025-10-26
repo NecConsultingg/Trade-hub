@@ -216,6 +216,7 @@ const ProductStockAddView: React.FC = () => {
               initialProductId={productId}
               initialLocationId={locationId}
               hideProductSelect
+              hideLocationSelect
               onSaveStock={() => router.refresh()}
               onClose={() => router.back()}
             />
