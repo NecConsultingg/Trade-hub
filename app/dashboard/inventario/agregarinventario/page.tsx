@@ -1,15 +1,21 @@
 'use client';
+
+import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import AddProductToStock from '@/components/AddProductToStock';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
 
 export default function AgregarProductoPage() {
   const router = useRouter();
-  const params = useSearchParams();
-  // lee el productId si viene en ?productId=123
-  const productIdParam = params.get('productId');
-  const productId = productIdParam ? parseInt(productIdParam, 10) : undefined;
-  const initialProductId = productId;
+  const [initialProductId, setInitialProductId] = useState<number | undefined>(undefined);
+
+  // Usamos useEffect para asegurarnos que useSearchParams solo se ejecute en el cliente
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const productIdParam = params.get('productId');
+    const productId = productIdParam ? parseInt(productIdParam, 10) : undefined;
+    setInitialProductId(productId);
+  }, []);
+
   return (
     <Suspense fallback={<div>Loading...</div>}>
       <div className="h-full m-5">
