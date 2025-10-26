@@ -8,11 +8,11 @@ export default function AgregarProductoPage() {
   const params = useSearchParams();
   // lee el productId si viene en ?productId=123
   const productIdParam = params.get('productId');
-  const initialProductId = productIdParam ? parseInt(productIdParam, 10) : undefined;
-
+  const productId = productIdParam ? parseInt(productIdParam, 10) : undefined;
+  const initialProductId = productId;
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      <div className='h-full m-5'>
+      <div className="h-full m-5">
         <AddProductToStock
           // le pasamos el id si lo hay, si no será undefined y el usuario lo elige manualmente
           initialProductId={initialProductId}
