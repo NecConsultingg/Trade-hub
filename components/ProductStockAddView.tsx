@@ -75,15 +75,18 @@ const ProductStockAddView: React.FC = () => {
 
         const optionSets: Record<number, Set<string>> = {};
         const variantIds: number[] = [];
+
         for (const v of variants || []) {
           if (v?.variant_id) variantIds.push(v.variant_id);
           const opts = v?.optionVariants || [];
+
           for (const ov of opts) {
-            const cc = ov?.characteristics_options;
-            if (!cc) continue;
-            const cid = cc.characteristics_id as number;
-            if (!optionSets[cid]) optionSets[cid] = new Set<string>();
-            if (cc.values) optionSets[cid].add(cc.values);
+            const ccList = ov?.characteristics_options || []; // 👈 es un array
+            for (const cc of ccList) {
+              const cid = cc.characteristics_id as number;
+              if (!optionSets[cid]) optionSets[cid] = new Set<string>();
+              if (cc.values) optionSets[cid].add(cc.values);
+            }
           }
         }
         setOptionValuesByCharId(optionSets);
