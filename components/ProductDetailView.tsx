@@ -67,13 +67,28 @@ type SupabaseStockItem = {
 interface ProductDetailViewProps {
 }
 
+interface ProductOverview {
+  product_id: number;
+  product_name: string;
+  total_variants: number;
+  total_stock: number;
+  locations_count: number;
+  last_entry_at: string | null;
+  min_price: number | null;
+  max_price: number | null;
+  characteristics: string[];
+}
+
+type VariantRow = { title: string; stock: number };
+
 const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
   const params = useParams();
   const router = useRouter();
   const { id: productId } = useParams<{ id: string }>();
   //const productIdFromParams = params?.productId || params?.id;
   //const productId = Array.isArray(productIdFromParams) ? productIdFromParams[0] : productIdFromParams;
-  const [variantTable, setVariantTable] = useState<{ title: string; stock: number }[]>([]);
+  const [overview, setOverview] = useState<ProductOverview | null>(null);
+  const [variantTable, setVariantTable] = useState<VariantRow[]>([]);
 
   const { toast } = useToast();
   const [product, setProduct] = useState<InventoryItem | null>(null);
@@ -88,128 +103,48 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const loadProductDetails = async () => {
-      if (!productId) {
-        setError('ID de producto no proporcionado.');
-        setLoading(false);
+ useEffect(() => {
+  const load = async () => {
+    if (!productId) return;
+
+    const pid = Number(productId);
+    try {
+      // 1) Overview
+      const { data: ovw, error: e1 } = await supabase
+        .rpc('get_product_overview', { product_id_param: pid });
+
+      if (e1) throw e1;
+      if (!ovw || ovw.length === 0) {
+        setError('Producto no encontrado.');
+        setOverview(null);
         return;
       }
+      setOverview(ovw[0]);
 
-      setLoading(true);
-      setError(null);
-      try {
-        const userId = await getUserId();
-        if (!userId) throw new Error('Usuario no autenticado.');
+      // 2) Variantes + stock agregado (tu RPC previo ya corregido)
+      const { data: variants, error: e2 } = await supabase
+        .rpc('get_product_variants_with_stock', { product_id_param: pid });
 
-        const { data, error: supaErr } = await supabase
-          .from('stock')
-          .select(`
-            id,
-            variant_id,
-            stock,
-            price,
-            added_at,
-            location,
-            locations ( name, id ),
-            productVariants (
-              products (
-                name,
-                product_characteristics ( name, characteristics_id )
-              ),
-              optionVariants (
-                characteristics_options ( values, characteristics_id )
-              )
-            )
-          `)
-          .eq('user_id', userId)
-          .eq('id', productId)
-          .single()
-          .returns<SupabaseStockItem>();
-          console.log("Iddddd", data)
+      if (e2) throw e2;
 
-        if (supaErr) throw supaErr;
-
-        if (data) {
-          const prod = data.productVariants?.products;
-          const opts = data.productVariants?.optionVariants ?? [];
-          const loc = data.locations?.name ?? '—';
-
-          const chars = opts.map(o => {
-            const co = o.characteristics_options;
-            const pc = prod?.product_characteristics.find(
-              pc => pc.characteristics_id === co?.characteristics_id
-            );
-            return {
-              name: pc?.name ?? 'Cualquiera',
-              value: co?.values ?? ''
-            };
-          });          
-          
-          const productData = {
-            id: data.id,
-            variant_id: data.variant_id,
-            productName: prod?.name ?? '—',
-            quantity: data.stock,
-            entryDate: new Date(data.added_at).toLocaleDateString(),
-            ubicacion_nombre: loc,
-            caracteristicas: chars,
-            price: data.price, 
-            location_id: data.location 
-          };
-
-          setProduct(productData);
-          setEditedQuantity(data.stock);
-          setEditedPrice(data.price || 0);
-        } else {
-          setError('Producto no encontrado.');
-        }
-      } catch (err: any) {
-        console.error(err);
-        return []
-        setError(err.message);
-         
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadProductDetails();
-  }, [productId, router ]);
-
-  useEffect(() => {
-  const loadVariantStockTable = async () => {
-    if (!productId) return;
-    try {
-      const { data, error } = await supabase.rpc('get_product_variants_with_stock', {
-        product_id_param: productId
-      })
-
-    if (error) {
-      console.error('Error:', error)
-      return []
+      const rows: VariantRow[] = (variants ?? []).map((v: any) => ({
+        title: v.variant_title || 'Sin título',
+        stock: v.total_stock || 0
+      }));
+      setVariantTable(rows);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Error cargando producto');
+    } finally {
+      setLoading(false);
     }
-    if (!data || data.length === 0) {
-      setVariantTable([]);
-      return;
-    }
-    console.log('Data received:', data);
-    const variants = data.map((item: any) => ({
-      title: item.variant_title || 'Sin título',
-      stock: item.total_stock || 0
-    }));
-
-    setVariantTable(variants);
-    return data
-  } catch (error) {
-    console.error('Error inesperado:', error)
-    return []
-  }
-
   };
 
-  loadVariantStockTable();
+  setLoading(true);
+  setError(null);
+  load();
 }, [productId]);
+
   // Function to handle entering edit mode
   const handleEditClick = () => {
     setIsEditing(true);
@@ -354,99 +289,86 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
     );
   }
 
-  if (!product) {
-    return <div>No se encontraron detalles del producto.</div>;
-  }
+  // if (!product) {
+  //   return <div>No se encontraron detalles del producto.</div>;
+  // }
 
   return (
     <div className="h-full">
       <Card className="w-full overflow-hidden">
         <CardContent>
-          <div className="border-b border-slate-200 pb-2 flex items-center justify-between mt-3">
-            <h1 className="text-lg font-semibold capitalize">Producto</h1>
-            <p className="text-md font-light flex items-center gap-2">
-              ID #{product.id}
-            </p>
-          </div>
-          <div className="mt-3 mb-3">
-            <h2 className="font-semibold">Detalles principales</h2>
-          </div>
-          <div className="mb-3 mt-3">
-            <p><strong>Nombre:</strong> {product.productName}</p>
-            
-            {isEditing ? (
-              <>
-                <div className="my-2">
-                  <Label htmlFor="quantity">Cantidad</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    value={editedQuantity}
-                    onChange={(e) => setEditedQuantity(e.target.value)}
-                    className="mt-1"
-                    min="0"
-                  />
+          {overview && (
+            <Card className="w-full overflow-hidden">
+              <CardContent>
+                <div className="border-b border-slate-200 pb-2 flex items-center justify-between mt-3">
+                  <h1 className="text-lg font-semibold capitalize">Producto</h1>
+                  <p className="text-md font-light">ID #{overview.product_id}</p>
                 </div>
-                <div className="my-2">
-                  <Label htmlFor="price">Precio (MXN)</Label>
-                  <Input
-                    id="price"
-                    type="number"
-                    value={editedPrice}
-                    onChange={(e) => setEditedPrice(e.target.value)}
-                    className="mt-1"
-                    min="0.01"
-                    step="0.01"
-                  />
+
+                <div className="mt-3 mb-3">
+                  <h2 className="font-semibold">Detalles principales</h2>
                 </div>
-              </>
-            ) : (
-              <>
-                <p><strong>Cantidad: </strong> {product.quantity}</p>
-                <p><strong>Precio: </strong> {product.price?.toFixed(2)} MXN</p>
-              </>
-            )}
-            
-            <p><strong>Ubicación:</strong> {product.ubicacion_nombre}</p>
-            <p><strong>Fecha de Entrada:</strong> {product.entryDate}</p>
-          </div>
-          {product.caracteristicas.length > 0 && (
-            <div>
-              <div className="mb-3 mt-3">
-                <h2 className="font-semibold">Características</h2>
-              </div>
-              <ul>
-                {product.caracteristicas.map((char, index) => (
-                  <li key={index}>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <p><strong>Nombre:</strong> {overview.product_name}</p>
+                    <p><strong>Variantes:</strong> {overview.total_variants}</p>
+                    <p><strong>Stock total:</strong> {overview.total_stock}</p>
+                  </div>
+                  <div>
+                    <p><strong>Ubicaciones:</strong> {overview.locations_count}</p>
                     <p>
-                      <strong>{char.name}:</strong> {char.value}
+                      <strong>Último movimiento:</strong>{' '}
+                      {overview.last_entry_at
+                        ? new Date(overview.last_entry_at).toLocaleString()
+                        : '—'}
                     </p>
-                  </li>
-                ))}
-              </ul>
-            </div>
+                    <p>
+                      <strong>Rango de precios:</strong>{' '}
+                      {overview.min_price != null && overview.max_price != null
+                        ? `${overview.min_price.toFixed(2)} — ${overview.max_price.toFixed(2)} MXN`
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                {overview.characteristics.length > 0 && (
+                  <>
+                    <div className="mb-3 mt-4">
+                      <h2 className="font-semibold">Características definidas</h2>
+                    </div>
+                    <ul className="list-disc ml-6">
+                      {overview.characteristics.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </CardContent>
+            </Card>
           )}
           {variantTable.length > 0 && (
-  <div className="mt-6">
-    <h2 className="text-lg font-semibold mb-2">Variantes del producto</h2>
-    <table className="w-full text-left border">
-      <thead>
-        <tr>
-          <th className="border px-4 py-2">Combinación</th>
-          <th className="border px-4 py-2">Stock</th>
-        </tr>
-      </thead>
-      <tbody>
-        {variantTable.map((variant, index) => (
-          <tr key={index}>
-            <td className="border px-4 py-2">{variant.title}</td>
-            <td className="border px-4 py-2">{variant.stock}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-)}
+            // Tabla de variantes del producto
+            <div className="mt-6">
+              <h2 className="text-lg font-semibold mb-2">Variantes del producto</h2>
+              <table className="w-full text-left border">
+                <thead>
+                  <tr>
+                    <th className="border px-4 py-2">Combinación</th>
+                    <th className="border px-4 py-2">Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {variantTable.map((variant, index) => (
+                    <tr key={index}>
+                      <td className="border px-4 py-2">{variant.title}</td>
+                      <td className="border px-4 py-2">{variant.stock}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {updateError && (
             <div className="text-red-500 my-2">{updateError}</div>
