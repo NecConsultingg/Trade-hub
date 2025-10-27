@@ -29,14 +29,6 @@ interface InventoryItem {
   attributes?: any[];
 }
 
-interface ProductsGeneralInfo{
-  product_id: number;
-  product_name: string;
-  attributes: string;
-  total_stock: number;
-}
-
-
 type SupabaseStockItem = {
   id: number;
   variant_id: number;
@@ -63,24 +55,12 @@ type SupabaseStockItem = {
   user_id: string;
 };
 
-// Función para obtener los datos de los productos para la tabla
-async function fetchProductsGeneralInfo(userId: number) {
-  const { data, error } = await supabase.rpc('get_products_general_info', { user_id_param: userId });
-
-  if (error) {
-    console.error('Error al obtener productos:', error);
-    return [];
-  }
-  console.log('Datos de productos obtenidos:', data);
-  return data as ProductsGeneralInfo[];
-}
-
 const InventarioContent: React.FC = () => {
   const router = useRouter();
   const [filterStatus, setFilterStatus] = useState<'Todos' | 'ConStock'>('Todos');
   const [currentPage, setCurrentPage] = useState(1);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [inventory, setInventory] = useState<ProductsGeneralInfo[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -88,47 +68,20 @@ const InventarioContent: React.FC = () => {
 
   const itemsPerPage = 6;
 
-  const [rawSearch, setRawSearch] = useState('');
-    useEffect(() => {
-      const t = setTimeout(() => setSearchTerm(rawSearch), 250);
-      return () => clearTimeout(t);
-    }, [rawSearch]);
+  const filtered = inventory.filter(item =>
+    (filterStatus === 'Todos' || item.quantity > 0) &&
+    item.productName.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const normalize = (s?: string) =>
-  (s ?? '')
-    .toString()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-  
-   // Filtro + búsqueda antes de paginar
-  const filtered = inventory.filter((item) => {
-    const term = normalize(searchTerm);
-    if (!term) {
-      // sin término, solo aplica filtro de stock
-      return filterStatus === 'Todos' ? true : (item.total_stock ?? 0) > 0;
-    }
-
-    const hayNombre = normalize(item.product_name).includes(term);
-    const hayAttr = normalize(item.attributes).includes(term);
-
-    const matchesSearch = hayNombre || hayAttr;
-    const matchesStock =
-      filterStatus === 'Todos' ? true : (item.total_stock ?? 0) > 0;
-
-    return matchesSearch && matchesStock;
-  });
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const pageData = filtered.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
-  console.log('Datos de la página actual:', pageData);
 
-    useEffect(() => {
+  useEffect(() => {
     setCurrentPage(1);
-  }, [filterStatus, searchTerm]);
+  }, [filterStatus]);
 
   const toggleDropdown = () => {
     setIsDropdownOpen(open => !open);
@@ -141,9 +94,53 @@ const InventarioContent: React.FC = () => {
       const userId = await getUserId();
       if (!userId) throw new Error('Usuario no autenticado.');
 
-      const formatted = await fetchProductsGeneralInfo(Number(userId));
+      const { data, error: supaErr } = await supabase
+        .from('stock')
+        .select(`
+          id,
+          variant_id,
+          stock,
+          added_at,
+          locations ( name ),
+          productVariants (
+            products (
+              name,
+              product_characteristics ( name, characteristics_id )
+            ),
+            optionVariants (
+              characteristics_options ( values, characteristics_id )
+            )
+          )
+        `)
+        .eq('user_id', userId)
+        .returns<SupabaseStockItem[]>();
 
-      console.log('Datos de inventario formateados:', formatted);
+      if (supaErr) throw supaErr;
+
+      const formatted: InventoryItem[] = data.map(item => {
+        const prod = item.productVariants?.products;
+        const opts = item.productVariants?.optionVariants ?? [];
+        const loc  = item.locations?.name ?? '—';
+
+        const chars = opts.map(o => {
+          const co = o.characteristics_options;
+          const pc = prod?.product_characteristics.find(
+            pc => pc.characteristics_id === co?.characteristics_id
+          );
+          return `${pc?.name ?? 'Cualquiera'}: ${co?.values}`;
+        });
+
+        return {
+          id: item.id,
+          variant_id: item.variant_id,
+          productName: prod?.name ?? '—',
+          quantity: item.stock,
+          entryDate: new Date(item.added_at).toLocaleDateString(),
+          ubicacion_nombre: loc,
+          caracteristicas: chars
+        };
+      });
+
       setInventory(formatted);
     } catch (err: any) {
       console.error(err);
@@ -189,18 +186,11 @@ const InventarioContent: React.FC = () => {
             Crear producto
           </button>
           <button
-            onClick={() => router.push('/dashboard/inventario/agregarinventario')}
-            className='px-3 py-3 flex items-center gap-2 rounded-sm bg-[#1366D9] text-white shadow-lg hover:bg-[#0d4ea6] transition-colors'
-          >
-            <Plus className="inline-block w-4 h-4 mr-1" />
-            Agregar Inventario
-          </button>
-          <button
             onClick={handleOpenAvailableProducts}
             className='px-3 py-3 flex items-center gap-2 rounded-sm bg-[#1366D9] text-white shadow-lg hover:bg-[#0d4ea6] transition-colors'
           >
             <Plus className="inline-block w-4 h-4 mr-1" />
-            Productos disponibles
+            Agregar Inventario
           </button>
         </div>
         <button
@@ -232,7 +222,7 @@ const InventarioContent: React.FC = () => {
           </div>
           <div className="flex items-baseline">
             <span className="text-3xl font-bold text-gray-900">
-              {inventory.reduce((sum, item) => sum + Number(item.total_stock || 0), 0)}
+              {inventory.reduce((sum, item) => sum + item.quantity, 0)}
             </span>
             <span className="ml-2 text-sm text-gray-500">unidades</span>
           </div>
@@ -247,7 +237,7 @@ const InventarioContent: React.FC = () => {
           </div>
           <div className="flex items-baseline">
             <span className="text-3xl font-bold text-gray-900">
-              {inventory.filter(item => item.total_stock > 0).length}
+              {inventory.filter(item => item.quantity > 0).length}
             </span>
             <span className="ml-2 text-sm text-gray-500">productos</span>
           </div>
@@ -263,123 +253,74 @@ const InventarioContent: React.FC = () => {
           </div>
           <div className="flex items-baseline">
             <span className="text-3xl font-bold text-gray-900">
-              {inventory.filter(item => item.total_stock === 0).length}
+              {inventory.filter(item => item.quantity === 0).length}
             </span>
             <span className="ml-2 text-sm text-gray-500">productos</span>
           </div>
           <p className="mt-2 text-sm text-gray-500">Productos que necesitan reabastecimiento</p>
         </div>
       </div>
-      <div>
-        {/* Barra de búsqueda */}
+
       <input
-          type="text"
-          value={rawSearch}
-          onChange={(e) => setRawSearch(e.target.value)}
-          placeholder="Buscar producto..."
-          className="px-6 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-      </div>
+  type="text"
+  value={searchTerm}
+  onChange={(e) => setSearchTerm(e.target.value)}
+  placeholder="Buscar producto..."
+  className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+/>
 
       {/* Tabla */}
       <div className="bg-white rounded-lg border border-[#e6e6e6] shadow-sm mt-8">
         <div className="px-6 py-4 border-b border-[#e6e6e6] flex justify-between items-center">
           <h2 className="text-lg font-semibold capitalize">Lista de Inventario</h2>
         </div>
-
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed">
-            <colgroup>
-              <col className="w-[28%]" /> {/* Producto */}
-              <col className="w-[54%]" /> {/* Atributos (la grande) */}
-              <col className="w-[10%]" /> {/* Stock */}
-              <col className="w-[8%]"  /> {/* Ver más */}
-            </colgroup>
-
+          <table className="w-full">
             <thead>
-              <tr className="bg-[#f5f5f5] text-center">
-                {['Producto', 'Atributos', 'Stock', 'Ver más'].map(h => (
-                  <th key={h} className="px-3 py-3 text-xs font-medium text-[#667085] uppercase tracking-wider">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-[#e6e6e6] text-center">
-              {pageData.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-6 py-8 text-sm text-[#667085]">
-                  No hay resultados para “{searchTerm}”.
+            <tr className="bg-[#f5f5f5] text-center">
+              {['Producto', 'Características', 'Cantidad', 'Ubicación', 'Fecha', 'Ver más'].map(h => (
+                <th key={h} className="px-3 py-3 text-xs font-medium text-[#667085] uppercase tracking-wider">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#e6e6e6] text-center">
+            {pageData.map(item => (
+              <tr key={item.id}>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085] capitalize">{item.productName}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]  capitalize">{item.caracteristicas.join(', ')}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">{item.quantity}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]  capitalize">{item.ubicacion_nombre}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-[#667085]">{item.entryDate}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <button
+                    onClick={() => router.push(`/dashboard/inventario/${item.id}`)}
+                    className="text-indigo-600 hover:text-indigo-900"
+                  >
+                    <Eye className="w-4 h-4 mx-auto" />
+                  </button>
                 </td>
               </tr>
-            ) : (
-              pageData.map((item) => {
-                const to = `/dashboard/inventario/${item.product_id}`
-                return (
-                  <tr
-                    key={item.product_id}
-                    onClick={() => router.push(to)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        router.push(to)
-                      }
-                    }}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`Abrir ${item.product_name}`}
-                    title="Ver detalles"
-                    className="cursor-pointer hover:bg-blue-50 focus:bg-gray-100 focus:outline-none transition-colors"
-                  >
-                    <td className="px-6 py-4 text-sm text-[#667085] truncate">
-                      <span className="inline-block max-w-full" title={item.product_name}>
-                        {item.product_name}
-                      </span>
-                    </td>
-
-                    <td
-                      className="px-6 py-4 text-sm text-[#667085] whitespace-normal break-words text-center"
-                      title={item.attributes}
-                    >
-                      <div className="max-h-24 overflow-auto pr-1">
-                        {item.attributes || '—'}
-                      </div>
-                    </td>
-
-                    <td className="px-6 py-4 text-sm text-[#667085]">
-                      {item.total_stock}
-                    </td>
-
-                    {/* Ícono decorativo (no botón) */}
-                    <td className="px-6 py-4 text-sm">
-                      <Eye className="w-4 h-4 mx-auto opacity-70" aria-hidden="true" />
-                    </td>
-                  </tr>
-                )
-              })
-            )}
-
-            </tbody>
-          </table>
-
-          {/* Paginación */}
-          <div className="px-6 py-4 border-t border-[#e6e6e6] flex justify-between items-center">
+            ))}
+          </tbody>
+        </table>
+        <div className="px-6 py-4 border-t border-[#e6e6e6] flex justify-between items-center">
             <button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1}
               className={`border-2 px-3 py-2 flex items-center gap-2 rounded-sm ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <ChevronLeft className="w-4 h-4" /> Anterior
-            </button>
-            <span className="text-xs font-medium text-[#667085] uppercase tracking-wider">
-              Página {Math.min(currentPage, totalPages)} de {totalPages}
-            </span>
-            <button
+              >
+                <ChevronLeft className="w-4 h-4" /> Anterior
+              </button>
+              <span className="text-xs font-medium text-[#667085] uppercase tracking-wider">
+                Página {currentPage} de {totalPages}
+              </span> 
+              <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages}
               className={`border-2 px-3 py-2 flex items-center gap-2 rounded-sm ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
+              >
               Siguiente <ChevronRight className="w-4 h-4" />
             </button>
           </div>
