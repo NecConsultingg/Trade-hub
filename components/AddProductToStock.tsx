@@ -43,6 +43,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(initialProductId ?? null);
   const [productError, setProductError] = useState<string>('');
+  const [selectedProductName, setSelectedProductName] = useState<string>('');
 
   const [attributes, setAttributes] = useState<Attribute[]>([]);
   const [attributeOptions, setAttributeOptions] = useState<Record<number, OptionData[]>>({});
@@ -54,6 +55,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(initialLocationId ?? null);
   const [locationError, setLocationError] = useState<string>('');
+  const [selectedLocationName, setSelectedLocationName] = useState<string>('');
 
   const [isLoading, setIsLoading] = useState(false);
 
@@ -147,6 +149,14 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
         if (productsError) throw productsError;
         setProducts(productsData || []);
 
+        // Si hay un producto inicial, cargar su nombre
+        if (initialProductId) {
+          const product = (productsData || []).find(p => p.id === initialProductId);
+          if (product) {
+            setSelectedProductName(product.name);
+          }
+        }
+
         const { data: ubicacionesData, error: ubicacionesError } = await supabase
           .from('locations')
           .select('id, name')
@@ -155,6 +165,10 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
         setUbicaciones(ubicacionesData || []);
         if (initialLocationId && (ubicacionesData || []).some(u => u.id === initialLocationId)) {
           setSelectedLocationId(initialLocationId);
+          const location = (ubicacionesData || []).find(u => u.id === initialLocationId);
+          if (location) {
+            setSelectedLocationName(location.name);
+          }
         }
       } catch (error: any) {
         console.error('Error cargando datos iniciales:', error);
@@ -532,10 +546,15 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
   return (
     <Card className="w-full">
       <CardContent className="p-6">
-          <h1 className="text-lg font-semibold">Agregar inventario:</h1>
+          <h1 className="text-lg font-semibold mb-4">Agregar inventario</h1>
 
-          {/* Producto (opcional) */}
-          {!hideProductSelect && !initialProductId && (
+          {/* Mostrar producto seleccionado cuando viene predefinido */}
+          {(hideProductSelect || initialProductId) && selectedProductName ? (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <Label className="text-sm text-gray-600">Producto</Label>
+              <p className="text-base font-medium text-gray-900 mt-1">{selectedProductName}</p>
+            </div>
+          ) : !hideProductSelect && !initialProductId && (
             <div className="my-4">
               <Label htmlFor="product-select">Producto</Label>
               <select
@@ -556,8 +575,13 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
             </div>
           )}
 
-          {/* Sucursal (oculto si viene preseleccionada y hideLocationSelect) */}
-          {!hideLocationSelect && (
+          {/* Mostrar sucursal seleccionada cuando viene predefinida */}
+          {(hideLocationSelect || initialLocationId) && selectedLocationName ? (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+              <Label className="text-sm text-gray-600">Sucursal</Label>
+              <p className="text-base font-medium text-gray-900 mt-1">{selectedLocationName}</p>
+            </div>
+          ) : !hideLocationSelect && (
             <div className="mb-4">
               <Label htmlFor="location-select">Sucursal</Label>
               <select
@@ -579,14 +603,49 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
           )}
 
           {/* Variantes múltiples */}
-          <div className="mb-4 border p-4 rounded-md">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="font-semibold">Agrega cantidades por variante</h2>
-              <Button type="button" variant="outline" onClick={addRow} disabled={isLoading}>+ Agregar variante</Button>
+          <div className="mb-4 border border-gray-300 p-4 rounded-md bg-gray-50">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="font-semibold text-gray-900">Variantes del producto</h2>
+                <p className="text-sm text-gray-600">Agrega las cantidades para cada variante que desees ingresar</p>
+              </div>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={addRow} 
+                disabled={isLoading || !selectedProductId || !selectedLocationId}
+                className="bg-white hover:bg-gray-100"
+              >
+                + Agregar variante
+              </Button>
             </div>
+            
+            {attributes.length === 0 && selectedProductId && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                <p className="text-sm text-yellow-800">
+                  ℹ️ Este producto no tiene variantes configuradas. Puedes agregar inventario directamente ingresando la cantidad y precio.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-4">
-              {rows.map((row) => (
-                <div key={row.id} className="border rounded-md p-3">
+              {rows.map((row, index) => (
+                <div key={row.id} className="border border-gray-300 bg-white rounded-md p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-medium text-gray-700">Variante #{index + 1}</h3>
+                    {rows.length > 1 && (
+                      <Button 
+                        type="button" 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => removeRow(row.id)} 
+                        disabled={isLoading}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        🗑️ Eliminar
+                      </Button>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                     {/* Attribute selectors per row */}
                     <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -619,9 +678,16 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
 
                     {/* Quantity */}
                     <div>
-                      <Label>Cantidad</Label>
+                      <Label>Cantidad a agregar</Label>
                       <div className="mt-1 flex items-center gap-2">
-                        <button type="button" onClick={() => decrementRowQty(row.id)} className="w-9 h-9 border rounded grid place-items-center">-</button>
+                        <button 
+                          type="button" 
+                          onClick={() => decrementRowQty(row.id)} 
+                          className="w-9 h-9 border rounded grid place-items-center hover:bg-gray-100 transition-colors"
+                          disabled={isLoading}
+                        >
+                          -
+                        </button>
                         <Input
                           type="number"
                           value={row.quantity}
@@ -630,9 +696,19 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
                           disabled={isLoading}
                           min={0}
                         />
-                        <button type="button" onClick={() => incrementRowQty(row.id)} className="w-9 h-9 border rounded grid place-items-center">+</button>
+                        <button 
+                          type="button" 
+                          onClick={() => incrementRowQty(row.id)} 
+                          className="w-9 h-9 border rounded grid place-items-center hover:bg-gray-100 transition-colors"
+                          disabled={isLoading}
+                        >
+                          +
+                        </button>
                       </div>
-                      <p className="text-xs text-gray-600 mt-1">Existencia: {row.currentStock}</p>
+                      <div className="mt-2 p-2 bg-white border border-gray-200 rounded">
+                        <p className="text-xs text-gray-600">Existencia actual:</p>
+                        <p className="text-sm font-semibold text-gray-900">{row.currentStock} unidades</p>
+                      </div>
                       {row.errors?.quantity && <p className="text-red-600 text-sm mt-1">{row.errors.quantity}</p>}
                     </div>
 
@@ -664,12 +740,11 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
                   </div>
 
                   {/* Row-level attribute error */}
-                  {row.errors?.options && <p className="text-red-600 text-sm mt-2">{row.errors.options}</p>}
-
-                  {/* Remove row */}
-                  <div className="mt-2 flex justify-end">
-                    <Button type="button" variant="ghost" onClick={() => removeRow(row.id)} disabled={isLoading}>Eliminar</Button>
-                  </div>
+                  {row.errors?.options && (
+                    <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
+                      <p className="text-red-600 text-sm">{row.errors.options}</p>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

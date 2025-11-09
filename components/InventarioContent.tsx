@@ -189,6 +189,13 @@ const InventarioContent: React.FC = () => {
             <Plus className="inline-block w-4 h-4 mr-1" />
             Agregar Inventario
           </button>
+          <button
+            onClick={() => router.push('/dashboard/inventario/productosdisponibles')}
+            className='px-3 py-3 flex items-center gap-2 rounded-sm bg-[#1366D9] text-white shadow-lg hover:bg-[#0d4ea6] transition-colors'
+          >
+            <Package className="w-4 h-4" />
+            Productos Disponibles
+          </button>
         </div>
         <button
           onClick={() => router.push('/dashboard/inventario/editarproductos')}
