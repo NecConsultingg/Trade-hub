@@ -32,6 +32,7 @@ export default function AgregarProductoPage() {
           // le pasamos el id si lo hay, si no será undefined y el usuario lo elige manualmente
           initialProductId={initialProductId}
           initialLocationId={initialLocationId}
+          hideProductSelect={Boolean(initialProductId)}
           hideLocationSelect={Boolean(initialLocationId)}
           onClose={() => router.push('/dashboard/inventario')}
           onSaveStock={() => router.push('/dashboard/inventario')}

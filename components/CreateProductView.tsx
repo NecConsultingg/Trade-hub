@@ -489,25 +489,34 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
           <p className="mb-6 text-gray-600">¿Deseas agregar inventario de este producto?</p>
           <div className="flex flex-col gap-3">
             <Button
-              onClick={() =>
+              onClick={() => {
+                setShowModal(false);
+                onSaveProduct();
                 router.push(
                   `/dashboard/inventario/agregarinventario?productId=${newProductId}`
-                )
-              }
+                );
+              }}
               className="w-full"
             >
               Si
             </Button>
             <Button
               variant="outline"
-              onClick={() => setShowModal(false)}
+              onClick={() => {
+                setShowModal(false);
+                onSaveProduct();
+              }}
               className="w-full"
             >
               En otro momento
             </Button>
             <Button
               variant="ghost"
-              onClick={() => router.push('/dashboard/inventario')}
+              onClick={() => {
+                setShowModal(false);
+                onSaveProduct();
+                router.push('/dashboard/inventario');
+              }}
               className="w-full"
             >
               Volver al inventario

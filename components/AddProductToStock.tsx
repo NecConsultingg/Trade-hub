@@ -41,7 +41,7 @@ type VariantRow = {
 const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId, initialLocationId, hideProductSelect = false, hideLocationSelect = false, onSaveStock, onClose }) => {
   const { toast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(initialProductId ?? null);
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [productError, setProductError] = useState<string>('');
   const [selectedProductName, setSelectedProductName] = useState<string>('');
 
@@ -53,11 +53,24 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
   const [dateError, setDateError] = useState<string>('');
 
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
-  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(initialLocationId ?? null);
+  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
   const [locationError, setLocationError] = useState<string>('');
   const [selectedLocationName, setSelectedLocationName] = useState<string>('');
 
   const [isLoading, setIsLoading] = useState(false);
+
+  // CRITICAL: Sync props to state when they change
+  useEffect(() => {
+    if (initialProductId !== undefined && initialProductId !== selectedProductId) {
+      setSelectedProductId(initialProductId);
+    }
+  }, [initialProductId]);
+
+  useEffect(() => {
+    if (initialLocationId !== undefined && initialLocationId !== selectedLocationId) {
+      setSelectedLocationId(initialLocationId);
+    }
+  }, [initialLocationId]);
 
   // Row helpers
   const generateRowId = () => `${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -142,6 +155,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
       try {
         const userId = await getUserId();
         if (!userId) throw new Error("Usuario no autenticado.");
+        
         const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select('id, name')
@@ -149,27 +163,12 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
         if (productsError) throw productsError;
         setProducts(productsData || []);
 
-        // Si hay un producto inicial, cargar su nombre
-        if (initialProductId) {
-          const product = (productsData || []).find(p => p.id === initialProductId);
-          if (product) {
-            setSelectedProductName(product.name);
-          }
-        }
-
         const { data: ubicacionesData, error: ubicacionesError } = await supabase
           .from('locations')
           .select('id, name')
           .eq('user_id', userId);
         if (ubicacionesError) throw ubicacionesError;
         setUbicaciones(ubicacionesData || []);
-        if (initialLocationId && (ubicacionesData || []).some(u => u.id === initialLocationId)) {
-          setSelectedLocationId(initialLocationId);
-          const location = (ubicacionesData || []).find(u => u.id === initialLocationId);
-          if (location) {
-            setSelectedLocationName(location.name);
-          }
-        }
       } catch (error: any) {
         console.error('Error cargando datos iniciales:', error);
         toast({
@@ -183,6 +182,26 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
     }
     loadInitialData();
   }, []);
+
+  // Load product name when selectedProductId changes
+  useEffect(() => {
+    if (selectedProductId && products.length > 0) {
+      const product = products.find(p => p.id === selectedProductId);
+      if (product) {
+        setSelectedProductName(product.name);
+      }
+    }
+  }, [selectedProductId, products]);
+
+  // Load location name when selectedLocationId changes
+  useEffect(() => {
+    if (selectedLocationId && ubicaciones.length > 0) {
+      const location = ubicaciones.find(u => u.id === selectedLocationId);
+      if (location) {
+        setSelectedLocationName(location.name);
+      }
+    }
+  }, [selectedLocationId, ubicaciones]);
 
   // Carga atributos al cambiar de producto
   useEffect(() => {
@@ -549,12 +568,19 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
           <h1 className="text-lg font-semibold mb-4">Agregar inventario</h1>
 
           {/* Mostrar producto seleccionado cuando viene predefinido */}
-          {(hideProductSelect || initialProductId) && selectedProductName ? (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <Label className="text-sm text-gray-600">Producto</Label>
-              <p className="text-base font-medium text-gray-900 mt-1">{selectedProductName}</p>
-            </div>
-          ) : !hideProductSelect && !initialProductId && (
+          {hideProductSelect ? (
+            selectedProductName ? (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <Label className="text-sm text-gray-600">Producto</Label>
+                <p className="text-base font-medium text-gray-900 mt-1">{selectedProductName}</p>
+              </div>
+            ) : (
+              <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                <Label className="text-sm text-gray-600">Producto</Label>
+                <p className="text-base text-gray-500 mt-1">Cargando...</p>
+              </div>
+            )
+          ) : (
             <div className="my-4">
               <Label htmlFor="product-select">Producto</Label>
               <select
@@ -576,12 +602,19 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
           )}
 
           {/* Mostrar sucursal seleccionada cuando viene predefinida */}
-          {(hideLocationSelect || initialLocationId) && selectedLocationName ? (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
-              <Label className="text-sm text-gray-600">Sucursal</Label>
-              <p className="text-base font-medium text-gray-900 mt-1">{selectedLocationName}</p>
-            </div>
-          ) : !hideLocationSelect && (
+          {hideLocationSelect ? (
+            selectedLocationName ? (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                <Label className="text-sm text-gray-600">Sucursal</Label>
+                <p className="text-base font-medium text-gray-900 mt-1">{selectedLocationName}</p>
+              </div>
+            ) : (
+              <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                <Label className="text-sm text-gray-600">Sucursal</Label>
+                <p className="text-base text-gray-500 mt-1">Cargando...</p>
+              </div>
+            )
+          ) : (
             <div className="mb-4">
               <Label htmlFor="location-select">Sucursal</Label>
               <select
