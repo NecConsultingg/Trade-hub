@@ -271,12 +271,7 @@ const InventarioContent: React.FC = () => {
 
         <div className="overflow-x-auto">
           <table className="w-full table-fixed">
-            <colgroup>
-              <col className="w-[28%]" /> {/* Producto */}
-              <col className="w-[54%]" /> {/* Atributos (la grande) */}
-              <col className="w-[10%]" /> {/* Stock */}
-              <col className="w-[8%]"  /> {/* Ver más */}
-            </colgroup>
+            <colgroup><col className="w-[28%]" /><col className="w-[54%]" /><col className="w-[10%]" /><col className="w-[8%]" /></colgroup>
 
             <thead>
               <tr className="bg-[#f5f5f5] text-center">
