@@ -7,8 +7,6 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get('id');
 
-    console.log('Attempting to delete business with ID:', businessId);
-
     if (!businessId) {
       console.error('No business ID provided');
       return NextResponse.json(
@@ -32,7 +30,6 @@ export async function DELETE(request: Request) {
     );
 
     // First get the business data using id (UUID)
-    console.log('Fetching business data for ID:', businessId);
     const { data: businessData, error: businessError } = await supabase
       .from('admins')
       .select('id, user_id, name')
@@ -99,7 +96,6 @@ export async function DELETE(request: Request) {
     // First try to delete the auth user
     if (businessData.id) {
       try {
-        console.log('Attempting to delete auth user:', businessData.id);
         const { error: authError } = await supabase.auth.admin.deleteUser(
           businessData.id
         );
@@ -111,7 +107,6 @@ export async function DELETE(request: Request) {
             { status: 400 }
           );
         }
-        console.log('Auth user deleted successfully');
       } catch (authError: any) {
         console.error('Error during auth user deletion:', authError);
         return NextResponse.json(
@@ -122,7 +117,6 @@ export async function DELETE(request: Request) {
     }
 
     // Then delete the business record
-    console.log('Attempting to delete business record');
     const { error: deleteError } = await supabase
       .from('admins')
       .delete()
@@ -135,8 +129,6 @@ export async function DELETE(request: Request) {
         { status: 400 }
       );
     }
-
-    console.log('Business record deleted successfully');
 
     return NextResponse.json({ 
       message: 'Negocio eliminado exitosamente',

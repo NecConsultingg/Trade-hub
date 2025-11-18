@@ -64,15 +64,48 @@ type SupabaseStockItem = {
   user_id: string;
 };
 
-interface ProductDetailViewProps {
+interface ProductDetailViewProps {}
+
+interface ProductOverview {
+  product_id: number;
+  product_name: string;
+  total_variants: number;
+  total_stock: number;
+  locations_count: number;
+  last_entry_at: string | null;
+  min_price: number | null;
+  max_price: number | null;
+  characteristics: string[];
 }
 
+// -------- NUEVO: tipos para filtros/atributos --------
+type VariantAttr = {
+  characteristics_id: number;
+  option_id: number;
+  value: string;
+};
+
+type VariantRow = { 
+  variant_id: number;
+  title: string; 
+  stock: number;
+  attributes: VariantAttr[];
+};
+
+type FilterOption = { option_id: number; value: string };
+type FilterDef = { characteristics_id: number; name: string; options: FilterOption[] };
+type SelectedFilters = Record<number, Set<number>>;
+// -----------------------------------------------------
+
 const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
-  const params = useParams();
   const router = useRouter();
-  const { id: productId } = useParams<{ id: string }>();
-  //const productIdFromParams = params?.productId || params?.id;
-  //const productId = Array.isArray(productIdFromParams) ? productIdFromParams[0] : productIdFromParams;
+  const params = useParams<{ id?: string; productId?: string }>();
+  // Handle both route structures: /inventario/[id] and /sucursales/[id]/inventario/[productId]
+  const productId = params.productId || params.id;
+
+  const [overview, setOverview] = useState<ProductOverview | null>(null);
+  const [variantTable, setVariantTable] = useState<VariantRow[]>([]);
+
   const { toast } = useToast();
   const [product, setProduct] = useState<InventoryItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,92 +119,160 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
+  // -------- NUEVO: estado de filtros --------
+  const [filterDefs, setFilterDefs] = useState<FilterDef[]>([]);
+  const [selected, setSelected] = useState<SelectedFilters>({});
+  // -----------------------------------------
+
   useEffect(() => {
-    const loadProductDetails = async () => {
-      if (!productId) {
-        setError('ID de producto no proporcionado.');
-        setLoading(false);
-        return;
-      }
+    const load = async () => {
+      if (!productId) return;
+      const pid = Number(productId);
 
-      setLoading(true);
-      setError(null);
       try {
-        const userId = await getUserId();
-        if (!userId) throw new Error('Usuario no autenticado.');
+        // 1) Overview
+        const { data: ovw, error: e1 } = await supabase
+          .rpc('get_product_overview', { product_id_param: pid });
 
-        const { data, error: supaErr } = await supabase
-          .from('stock')
-          .select(`
-            id,
-            variant_id,
-            stock,
-            price,
-            added_at,
-            location,
-            locations ( name, id ),
-            productVariants (
-              products (
-                name,
-                product_characteristics ( name, characteristics_id )
-              ),
-              optionVariants (
-                characteristics_options ( values, characteristics_id )
-              )
-            )
-          `)
-          .eq('user_id', userId)
-          .eq('id', productId)
-          .single()
-          .returns<SupabaseStockItem>();
-          console.log("Iddddd", productId)
-
-        if (supaErr) throw supaErr;
-
-        if (data) {
-          const prod = data.productVariants?.products;
-          const opts = data.productVariants?.optionVariants ?? [];
-          const loc = data.locations?.name ?? '—';
-
-          const chars = opts.map(o => {
-            const co = o.characteristics_options;
-            const pc = prod?.product_characteristics.find(
-              pc => pc.characteristics_id === co?.characteristics_id
-            );
-            return {
-              name: pc?.name ?? 'Cualquiera',
-              value: co?.values ?? ''
-            };
-          });          
-          
-          const productData = {
-            id: data.id,
-            variant_id: data.variant_id,
-            productName: prod?.name ?? '—',
-            quantity: data.stock,
-            entryDate: new Date(data.added_at).toLocaleDateString(),
-            ubicacion_nombre: loc,
-            caracteristicas: chars,
-            price: data.price, 
-            location_id: data.location 
-          };
-
-          setProduct(productData);
-          setEditedQuantity(data.stock);
-          setEditedPrice(data.price || 0);
-        } else {
+        if (e1) throw e1;
+        if (!ovw || ovw.length === 0) {
           setError('Producto no encontrado.');
+          setOverview(null);
+          return;
         }
+        setOverview(ovw[0]);
+
+        // 2) Variantes + stock (+ attributes_json si existe)
+        const { data: variants, error: e2 } = await supabase
+          .rpc('get_product_variants_with_stock', { product_id_param: pid });
+
+        if (e2) throw e2;
+
+        // Mapeo base
+        let rows: VariantRow[] = (variants ?? []).map((v: any) => ({
+          variant_id: v.variant_id ?? 0,
+          title: v.variant_title || 'Sin título',
+          stock: v.total_stock || 0,
+          attributes: Array.isArray(v.attributes_json) ? v.attributes_json : [] // podría venir vacío
+        }));
+
+        // Si no hay attributes_json, hacemos fallback para traer atributos
+        const needsAttrFetch = rows.some(r => r.attributes.length === 0) && rows.some(r => r.variant_id);
+        if (needsAttrFetch) {
+          const variantIds = rows.map(r => r.variant_id).filter(Boolean);
+          if (variantIds.length > 0) {
+            const { data: ov, error: eOv } = await supabase
+              .from('optionVariants')
+              .select('variant_id, option_id, characteristics_options(id, values, characteristics_id)')
+              .in('variant_id', variantIds);
+
+            if (!eOv && Array.isArray(ov)) {
+              const grouped = new Map<number, VariantAttr[]>();
+              ov.forEach((row: any) => {
+                const co = row.characteristics_options;
+                if (!grouped.has(row.variant_id)) grouped.set(row.variant_id, []);
+                if (co) {
+                  grouped.get(row.variant_id)!.push({
+                    characteristics_id: co.characteristics_id,
+                    option_id: co.id,
+                    value: co.values
+                  });
+                }
+              });
+              rows = rows.map(r => ({
+                ...r,
+                attributes: grouped.get(r.variant_id) ?? r.attributes
+              }));
+            }
+          }
+        }
+
+        setVariantTable(rows);
+
+        // 3) Definiciones de filtros (RPC si existe, si no fallback con 2 consultas)
+        let defs: any[] | null = null;
+        let e3: any = null;
+
+        // intento RPC
+        const rpcDefs = await supabase
+          .rpc('get_product_filter_definitions', { product_id_param: pid });
+
+        if (rpcDefs.error) {
+          e3 = rpcDefs.error;
+        } else {
+          defs = rpcDefs.data ?? null;
+        }
+
+        if (e3 || !defs) {
+          // Fallback: product_characteristics + characteristics_options
+          const { data: chars, error: ec } = await supabase
+            .from('product_characteristics')
+            .select('characteristics_id, name')
+            .eq('product_id', pid)
+            .order('characteristics_id', { ascending: true });
+
+          if (ec) throw ec;
+
+          const charIds = (chars ?? []).map(c => c.characteristics_id);
+          let options: any[] = [];
+          if (charIds.length > 0) {
+            const { data: opts, error: eo } = await supabase
+              .from('characteristics_options')
+              .select('id, characteristics_id, values')
+              .in('characteristics_id', charIds)
+              .order('characteristics_id', { ascending: true })
+              .order('id', { ascending: true });
+            if (eo) throw eo;
+            options = opts ?? [];
+          }
+
+          const byChar = new Map<number, FilterDef>();
+          (chars ?? []).forEach((c: any) => {
+            byChar.set(c.characteristics_id, {
+              characteristics_id: c.characteristics_id,
+              name: c.name,
+              options: []
+            });
+          });
+          options.forEach((o: any) => {
+            const bucket = byChar.get(o.characteristics_id);
+            if (bucket) {
+              bucket.options.push({ option_id: o.id, value: o.values });
+            }
+          });
+
+          setFilterDefs(Array.from(byChar.values()));
+        } else {
+          // Agrupar defs del RPC
+          const byChar = new Map<number, FilterDef>();
+          (defs ?? []).forEach((r: any) => {
+            if (!byChar.has(r.characteristics_id)) {
+              byChar.set(r.characteristics_id, {
+                characteristics_id: r.characteristics_id,
+                name: r.characteristic_name,
+                options: []
+              });
+            }
+            byChar.get(r.characteristics_id)!.options.push({
+              option_id: r.option_id,
+              value: r.option_value
+            });
+          });
+          setFilterDefs(Array.from(byChar.values()));
+        }
+
       } catch (err: any) {
         console.error(err);
-        setError(err.message);
+        setError(err.message || 'Error cargando producto');
       } finally {
         setLoading(false);
       }
     };
 
-    loadProductDetails();
-  }, [productId, router ]);
+    setLoading(true);
+    setError(null);
+    load();
+  }, [productId]);
 
   // Function to handle entering edit mode
   const handleEditClick = () => {
@@ -256,9 +357,6 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
   const handleDelete = async () => {
     if (!product) return;
     
-    console.log('=== Frontend Delete Process Start ===');
-    console.log('Attempting to delete product:', product.id);
-    
     setUpdateLoading(true);
     setUpdateError(null);
     
@@ -271,22 +369,17 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
       });
 
       const data = await response.json();
-      console.log('Delete API Response:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Error al eliminar el producto');
       }
-
-      console.log('Product deleted successfully, closing view and redirecting...');
       
       toast({
         title: "¡Éxito!",
         description: "Producto eliminado correctamente",
       });
-      // Close the detail view and redirect to products list
       router.push('/dashboard/inventario');
-      router.refresh(); // Force a refresh of the page data
-      //router.refresh(); // Force a refresh of the page data
+      router.refresh();
     } catch (err: any) {
       console.error('Error in frontend delete handler:', err);
       const errorMessage = err.message || 'Error desconocido al eliminar el producto';
@@ -297,7 +390,6 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
         description: errorMessage || "Error desconocido al eliminar el producto. Por favor, intenta de nuevo.",
       });
     } finally {
-      console.log('=== Frontend Delete Process Complete ===');
       setUpdateLoading(false);
       setShowDeleteDialog(false);
     }
@@ -317,76 +409,161 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
     );
   }
 
-  if (!product) {
-    return <div>No se encontraron detalles del producto.</div>;
+  // -------- NUEVO: lógica de filtrado --------
+  function matchesFilters(variant: VariantRow, selected: SelectedFilters): boolean {
+    // AND entre características: cada característica con selección activa debe cumplirse
+    for (const [charIdStr, optSet] of Object.entries(selected)) {
+      const charId = Number(charIdStr);
+      if (!optSet || optSet.size === 0) continue; // sin filtros en esa característica
+
+      const optsForChar = variant.attributes.filter(a => a.characteristics_id === charId);
+      if (optsForChar.length === 0) return false;
+
+      // OR dentro de la característica
+      const hasAny = optsForChar.some(a => optSet.has(a.option_id));
+      if (!hasAny) return false;
+    }
+    return true;
   }
+
+  const filteredVariants = variantTable.filter(v => matchesFilters(v, selected));
+  // -------------------------------------------
 
   return (
     <div className="h-full">
       <Card className="w-full overflow-hidden">
         <CardContent>
-          <div className="border-b border-slate-200 pb-2 flex items-center justify-between mt-3">
-            <h1 className="text-lg font-semibold capitalize">Producto</h1>
-            <p className="text-md font-light flex items-center gap-2">
-              ID #{product.id}
-            </p>
-          </div>
-          <div className="mt-3 mb-3">
-            <h2 className="font-semibold">Detalles principales</h2>
-          </div>
-          <div className="mb-3 mt-3">
-            <p><strong>Nombre:</strong> {product.productName}</p>
-            
-            {isEditing ? (
-              <>
-                <div className="my-2">
-                  <Label htmlFor="quantity">Cantidad</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    value={editedQuantity}
-                    onChange={(e) => setEditedQuantity(e.target.value)}
-                    className="mt-1"
-                    min="0"
-                  />
+          {overview && (
+            <Card className="w-full overflow-hidden">
+              <CardContent>
+                <div className="border-b border-slate-200 pb-2 flex items-center justify-between mt-3">
+                  <h1 className="text-lg font-semibold capitalize">Producto</h1>
+                  <p className="text-md font-light">ID #{overview.product_id}</p>
                 </div>
-                <div className="my-2">
-                  <Label htmlFor="price">Precio (MXN)</Label>
-                  <Input
-                    id="price"
-                    type="number"
-                    value={editedPrice}
-                    onChange={(e) => setEditedPrice(e.target.value)}
-                    className="mt-1"
-                    min="0.01"
-                    step="0.01"
-                  />
+
+                <div className="mt-3 mb-3">
+                  <h2 className="font-semibold">Detalles principales</h2>
                 </div>
-              </>
-            ) : (
-              <>
-                <p><strong>Cantidad: </strong> {product.quantity}</p>
-                <p><strong>Precio: </strong> {product.price?.toFixed(2)} MXN</p>
-              </>
-            )}
-            
-            <p><strong>Ubicación:</strong> {product.ubicacion_nombre}</p>
-            <p><strong>Fecha de Entrada:</strong> {product.entryDate}</p>
-          </div>
-          {product.caracteristicas.length > 0 && (
-            <div>
-              <div className="mb-3 mt-3">
-                <h2 className="font-semibold">Características</h2>
-              </div>
-              <ul>
-                {product.caracteristicas.map((char, index) => (
-                  <li key={index}>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <p><strong>Nombre:</strong> {overview.product_name}</p>
+                    <p><strong>Variantes:</strong> {overview.total_variants}</p>
+                    <p><strong>Stock total:</strong> {overview.total_stock}</p>
+                  </div>
+                  <div>
+                    <p><strong>Ubicaciones:</strong> {overview.locations_count}</p>
                     <p>
-                      <strong>{char.name}:</strong> {char.value}
+                      <strong>Último movimiento:</strong>{' '}
+                      {overview.last_entry_at
+                        ? new Date(overview.last_entry_at).toLocaleString()
+                        : '—'}
                     </p>
-                  </li>
+                    <p>
+                      <strong>Rango de precios:</strong>{' '}
+                      {overview.min_price != null && overview.max_price != null
+                        ? `${overview.min_price.toFixed(2)} — ${overview.max_price.toFixed(2)} MXN`
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                {overview.characteristics.length > 0 && (
+                  <>
+                    <div className="mb-3 mt-4">
+                      <h2 className="font-semibold">Características definidas</h2>
+                    </div>
+                    <ul className="list-disc ml-6">
+                      {overview.characteristics.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* -------- NUEVO: Filtros por atributos -------- */}
+          {filterDefs.length > 0 && (
+            <div className="mt-6 mb-4 p-4 border rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">Filtrar por atributos</h2>
+                <Button
+                  variant="outline"
+                  onClick={() => setSelected({})}
+                >
+                  Limpiar filtros
+                </Button>
+              </div>
+
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filterDefs.map(fd => (
+                  <div key={fd.characteristics_id} className="border rounded-md p-3">
+                    <div className="font-medium mb-2">{fd.name}</div>
+                    <div className="flex flex-col gap-2">
+                      {fd.options.map(op => {
+                        const checked = !!selected[fd.characteristics_id]?.has(op.option_id);
+                        return (
+                          <label key={op.option_id} className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="scale-110 accent-blue-600"
+                              checked={checked}
+                              onChange={(e) => {
+                                setSelected(prev => {
+                                  const copy = { ...prev };
+                                  const set = new Set<number>(copy[fd.characteristics_id] ?? []);
+                                  if (e.target.checked) set.add(op.option_id);
+                                  else set.delete(op.option_id);
+                                  copy[fd.characteristics_id] = set;
+                                  return copy;
+                                });
+                              }}
+                            />
+                            <span>{op.value}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
+            </div>
+          )}
+          {/* --------------------------------------------- */}
+
+          {filteredVariants.length > 0 && (
+            // Tabla de variantes del producto
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-lg font-semibold">Variantes del producto</h2>
+                <span className="text-sm text-slate-600">
+                  Mostrando {filteredVariants.length} de {variantTable.length}
+                </span>
+              </div>
+              <table className="w-full text-left border">
+                <thead>
+                  <tr>
+                    <th className="border px-4 py-2">Combinación</th>
+                    <th className="border px-4 py-2">Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredVariants.map((variant) => (
+                    <tr key={variant.variant_id}>
+                      <td className="border px-4 py-2">{variant.title}</td>
+                      <td className="border px-4 py-2">{variant.stock}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {filteredVariants.length === 0 && (
+            <div className="mt-6 text-sm text-slate-500">
+              No hay variantes que coincidan con los filtros seleccionados.
             </div>
           )}
 

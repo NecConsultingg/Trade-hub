@@ -23,12 +23,14 @@ interface LocationSelectorProps {
   isOpen: boolean;
   onClose: () => void;
   onLocationSelected: (locationId: number) => void;
+  onContinue?: (locationId: number) => void;
 }
 
 const LocationSelector: React.FC<LocationSelectorProps> = ({
   isOpen,
   onClose,
   onLocationSelected,
+  onContinue,
 }) => {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,10 +39,13 @@ const LocationSelector: React.FC<LocationSelectorProps> = ({
   );
   const router = useRouter();
 
-  const initiateCheckout = () => {
-    if (selectedLocationId !== null) {
-      onLocationSelected(selectedLocationId);
-      onClose();
+  // notify parent on selection change for external state if needed
+  const handleSelect = (id: number) => {
+    setSelectedLocationId(id);
+    try {
+      onLocationSelected(id);
+    } catch (_) {
+      // optional for backward compatibility
     }
   };
 
@@ -100,7 +105,7 @@ const LocationSelector: React.FC<LocationSelectorProps> = ({
               {locations.map((location) => (
                 <div
                   key={location.id}
-                  onClick={() => setSelectedLocationId(location.id)}
+                  onClick={() => handleSelect(location.id)}
                   className={`flex items-center p-3 border rounded-md cursor-pointer hover:border-blue-500 transition-colors ${
                     selectedLocationId === location.id
                       ? "border-blue-500 bg-blue-50"
@@ -128,7 +133,15 @@ const LocationSelector: React.FC<LocationSelectorProps> = ({
           </Button>
           <Button
             type="submit"
-            onClick={() => router.push(`/dashboard/ventas/agregarventa?locationId=${selectedLocationId}`)}
+            onClick={() => {
+              if (selectedLocationId === null) return;
+              if (onContinue) {
+                onContinue(selectedLocationId);
+                onClose();
+              } else {
+                router.push(`/dashboard/ventas/agregarventa?locationId=${selectedLocationId}`);
+              }
+            }}
             disabled={
               loading || locations.length === 0 || selectedLocationId === null
             }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,27 +15,40 @@ export interface OptionData { id: number; value: string; }
 export interface Ubicacion { id: number; name: string; }
 
 interface AddProductToStockProps {
+  initialProductId?: number;
+  initialLocationId?: number;
+  hideProductSelect?: boolean;
+  hideLocationSelect?: boolean;
   onSaveStock: () => void;
   onClose: () => void;
 }
 
-const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onClose }) => {
+type VariantRow = {
+  id: string;
+  selectedOptions: Record<number, number | null>;
+  quantity: number | string;
+  price: number | string;
+  existingPrice: number | null;
+  currentStock: number;
+  variantId: number | null;
+  errors?: {
+    options?: string;
+    quantity?: string;
+    price?: string;
+    duplicate?: string;
+  };
+};
+
+const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId, initialLocationId, hideProductSelect = false, hideLocationSelect = false, onSaveStock, onClose }) => {
   const { toast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [productError, setProductError] = useState<string>('');
+  const [selectedProductName, setSelectedProductName] = useState<string>('');
 
   const [attributes, setAttributes] = useState<Attribute[]>([]);
   const [attributeOptions, setAttributeOptions] = useState<Record<number, OptionData[]>>({});
-  const [selectedOptions, setSelectedOptions] = useState<Record<number, number | null>>({});
-  const [optionsError, setOptionsError] = useState<string>('');
-
-  const [quantity, setQuantity] = useState<number | string>('');
-  const [quantityError, setQuantityError] = useState<string>('');
-
-  const [price, setPrice] = useState<number | string>('');
-  const [priceError, setPriceError] = useState<string>('');
-  const [existingPrice, setExistingPrice] = useState<number | null>(null);
+  const [rows, setRows] = useState<VariantRow[]>([]);
 
   const [entryDate, setEntryDate] = useState<string>('');
   const [dateError, setDateError] = useState<string>('');
@@ -43,71 +56,117 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
   const [locationError, setLocationError] = useState<string>('');
+  const [selectedLocationName, setSelectedLocationName] = useState<string>('');
 
   const [isLoading, setIsLoading] = useState(false);
 
-  // Add new useEffect to check for existing stock
+  // Add this ref to track previous selectedOptions
+  const prevOptionsRef = useRef<string>('');
+
+  // CRITICAL: Sync props to state when they change
   useEffect(() => {
-    async function checkExistingStock() {
-      if (!selectedProductId || !selectedLocationId || Object.values(selectedOptions).some(v => v === null)) {
-        setExistingPrice(null);
-        return;
-      }
+    if (initialProductId !== undefined && initialProductId !== selectedProductId) {
+      setSelectedProductId(initialProductId);
+    }
+  }, [initialProductId]);
 
-      try {
-        const userId = await getUserId();
-        if (!userId) return;
+  useEffect(() => {
+    if (initialLocationId !== undefined && initialLocationId !== selectedLocationId) {
+      setSelectedLocationId(initialLocationId);
+    }
+  }, [initialLocationId]);
 
-        // Get the variant ID first
-        const selectedOptionIds = Object.values(selectedOptions).filter(id => id !== null) as number[];
-        const optionsArrayLiteral = `{${selectedOptionIds.join(',')}}`;
-        
-        const { data: rpcResult, error: searchError } = await supabase
-          .rpc('find_variant_by_options', {
-            p_user_id: userId,
-            p_product_id: selectedProductId,
-            p_option_ids: optionsArrayLiteral 
-          });
+  // Row helpers
+  const generateRowId = () => `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-        if (searchError) {
-          console.error("Error finding variant:", searchError);
-          return;
-        }
+  const createEmptyRow = (attrs: Attribute[]): VariantRow => {
+    const baseOptions: Record<number, number | null> = {};
+    for (const attribute of attrs) {
+      baseOptions[attribute.characteristics_id] = null;
+    }
+    return {
+      id: generateRowId(),
+      selectedOptions: baseOptions,
+      quantity: '',
+      price: '',
+      existingPrice: null,
+      currentStock: 0,
+      variantId: null,
+      errors: {},
+    };
+  };
 
-        const variantId = rpcResult?.[0]?.variant_id;
-        if (!variantId) {
-          setExistingPrice(null);
-          return;
-        }
+  const ensureAtLeastOneRow = (attrs: Attribute[]) => {
+    setRows(prev => (prev.length === 0 ? [createEmptyRow(attrs)] : prev));
+  };
 
-        // Now check for existing stock
-        const { data: stockCheck, error: stockError } = await supabase
-          .from('stock')
-          .select('id, stock, price')
-          .eq('variant_id', variantId)
-          .eq('location', selectedLocationId)
-          .maybeSingle();
-
-        if (stockError) {
-          console.error("Error checking stock:", stockError);
-          return;
-        }
-
-        console.log("Stock check result:", stockCheck); // Debug log
-        if (stockCheck?.price) {
-          console.log("Setting existing price to:", stockCheck.price); // Debug log
-          setExistingPrice(stockCheck.price);
-        } else {
-          setExistingPrice(null);
-        }
-      } catch (error) {
-        console.error("Error in checkExistingStock:", error);
-        setExistingPrice(null);
-      }
+  // Helper function to check if a variant combination already exists
+  const checkDuplicateVariant = (rows: VariantRow[], currentRowId: string, selectedOptions: Record<number, number | null>): boolean => {
+    // Only check for duplicates if all options are selected (not null)
+    const selectedOptionIds = Object.values(selectedOptions).filter(v => v !== null) as number[];
+    if (selectedOptionIds.length === 0 || selectedOptionIds.length !== attributes.length) {
+      return false; // Incomplete selections don't count as duplicates
     }
 
-    checkExistingStock();
-  }, [selectedProductId, selectedLocationId, selectedOptions]);
+    // Create a signature for the current selection
+    const currentSignature = JSON.stringify(selectedOptions);
+
+    // Check if any other row has the same signature
+    return rows.some(row => {
+      if (row.id === currentRowId) return false; // Don't compare with itself
+      const rowOptionIds = Object.values(row.selectedOptions).filter(v => v !== null) as number[];
+      if (rowOptionIds.length !== attributes.length) return false; // Incomplete rows don't count
+      return JSON.stringify(row.selectedOptions) === currentSignature;
+    });
+  };
+
+  // Function to merge duplicate variants by combining quantities
+  const mergeDuplicateVariants = (rowsToMerge: VariantRow[]): VariantRow[] => {
+    const mergedMap = new Map<string, VariantRow>();
+    
+    for (const row of rowsToMerge) {
+      const selectedOptionIds = Object.values(row.selectedOptions).filter(v => v !== null) as number[];
+      
+      // Skip incomplete rows
+      if (selectedOptionIds.length === 0 || selectedOptionIds.length !== attributes.length) {
+        mergedMap.set(row.id, row);
+        continue;
+      }
+      
+      const signature = JSON.stringify(row.selectedOptions);
+      
+      if (mergedMap.has(signature)) {
+        // Merge with existing variant
+        const existing = mergedMap.get(signature)!;
+        const existingQty = parseInt(existing.quantity.toString() || '0', 10);
+        const newQty = parseInt(row.quantity.toString() || '0', 10);
+        const mergedQty = existingQty + newQty;
+        
+        // Use the price from the first variant, or the one that has a price
+        const mergedPrice = existing.price || row.price;
+        
+        // Preserve variantId, existingPrice, and currentStock from existing (prefer non-null values)
+        const mergedVariantId = existing.variantId || row.variantId;
+        const mergedExistingPrice = existing.existingPrice ?? row.existingPrice;
+        const mergedCurrentStock = existing.currentStock || row.currentStock;
+        
+        mergedMap.set(signature, {
+          ...existing,
+          quantity: mergedQty,
+          price: mergedPrice,
+          variantId: mergedVariantId,
+          existingPrice: mergedExistingPrice,
+          currentStock: mergedCurrentStock,
+          errors: { ...existing.errors }
+        });
+      } else {
+        // First occurrence of this variant
+        mergedMap.set(signature, { ...row, errors: { ...row.errors } });
+      }
+    }
+    
+    return Array.from(mergedMap.values());
+  };
 
   // Validación previa al guardar
   const validateForm = (): boolean => {
@@ -120,18 +179,6 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
       setProductError("");
     }
 
-    if (attributes.length > 0) {
-      const selOpts = Object.values(selectedOptions).filter(v => v !== null);
-      if (selOpts.length !== attributes.length) {
-        setOptionsError("Por favor, selecciona una opción para cada atributo.");
-        valid = false;
-      } else {
-        setOptionsError("");
-      }
-    } else {
-      setOptionsError("");
-    }
-
     if (!selectedLocationId) {
       setLocationError("Por favor, selecciona una ubicación.");
       valid = false;
@@ -139,25 +186,36 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
       setLocationError("");
     }
 
-    const qty = parseInt(quantity.toString(), 10);
-    if (isNaN(qty) || qty <= 0) {
-      setQuantityError("Por favor, ingresa una cantidad válida (mayor a 0).");
-      valid = false;
-    } else {
-      setQuantityError("");
-    }
-
-    if (existingPrice === null) {
-      const pr = parseFloat(price.toString());
-      if (isNaN(pr) || pr <= 0) {
-        setPriceError("Por favor, ingresa un precio válido (mayor a 0).");
+    // Validate each row
+    const nextRows = rows.map(row => {
+      const rowErrors: VariantRow['errors'] = {};
+      const selectedOptionIds = Object.values(row.selectedOptions).filter(v => v !== null) as number[];
+      if (attributes.length > 0 && selectedOptionIds.length !== attributes.length) {
+        rowErrors.options = 'Selecciona una opción para cada atributo.';
         valid = false;
-      } else {
-        setPriceError("");
       }
-    } else {
-      setPriceError("");
-    }
+      
+      // Check for duplicate variants (block save if duplicates exist)
+      if (checkDuplicateVariant(rows, row.id, row.selectedOptions)) {
+        rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente o elimina la variante duplicada.';
+        valid = false;
+      }
+      
+      const qty = parseInt(row.quantity.toString(), 10);
+      if (isNaN(qty) || qty <= 0) {
+        rowErrors.quantity = 'Cantidad inválida (mayor a 0).';
+        valid = false;
+      }
+      if (row.existingPrice === null) {
+        const pr = parseFloat(row.price.toString());
+        if (isNaN(pr) || pr <= 0) {
+          rowErrors.price = 'Precio inválido (mayor a 0).';
+          valid = false;
+        }
+      }
+      return { ...row, errors: rowErrors };
+    });
+    setRows(nextRows);
 
     if (!entryDate) {
       setDateError("Por favor, selecciona la fecha de entrada.");
@@ -176,6 +234,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
       try {
         const userId = await getUserId();
         if (!userId) throw new Error("Usuario no autenticado.");
+        
         const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select('id, name')
@@ -203,13 +262,33 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
     loadInitialData();
   }, []);
 
+  // Load product name when selectedProductId changes
+  useEffect(() => {
+    if (selectedProductId && products.length > 0) {
+      const product = products.find(p => p.id === selectedProductId);
+      if (product) {
+        setSelectedProductName(product.name);
+      }
+    }
+  }, [selectedProductId, products]);
+
+  // Load location name when selectedLocationId changes
+  useEffect(() => {
+    if (selectedLocationId && ubicaciones.length > 0) {
+      const location = ubicaciones.find(u => u.id === selectedLocationId);
+      if (location) {
+        setSelectedLocationName(location.name);
+      }
+    }
+  }, [selectedLocationId, ubicaciones]);
+
   // Carga atributos al cambiar de producto
   useEffect(() => {
     async function getAttributes(productId: number | null) {
       if (productId === null) {
         setAttributes([]);
         setAttributeOptions({});
-        setSelectedOptions({});
+        setRows([]);
         return;
       }
       setIsLoading(true);
@@ -221,7 +300,8 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
         if (error) throw error;
         setAttributes(data || []);
         setAttributeOptions({});
-        setSelectedOptions({});
+        // Reset rows with the new attributes
+        setRows([createEmptyRow(data || [])]);
       } catch (error: any) {
         console.error("Error fetching attributes:", error);
         setAttributes([]);
@@ -237,12 +317,12 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
     async function getAttributeOptions() {
       if (attributes.length === 0) {
         setAttributeOptions({});
+        ensureAtLeastOneRow([]);
         return;
       }
       setIsLoading(true);
       try {
         let optionsMap: Record<number, OptionData[]> = {};
-        let initialSelected: Record<number, number | null> = {};
         for (const attribute of attributes) {
           const { data, error } = await supabase
             .from("characteristics_options")
@@ -258,10 +338,19 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
               value: o.values
             }));
           }
-          initialSelected[attribute.characteristics_id] = null;
         }
         setAttributeOptions(optionsMap);
-        setSelectedOptions(initialSelected);
+        // Rebuild rows to include new attribute keys if needed
+        setRows(prev => {
+          if (prev.length === 0) return [createEmptyRow(attributes)];
+          return prev.map(r => {
+            const nextSelected: Record<number, number | null> = {};
+            for (const attr of attributes) {
+              nextSelected[attr.characteristics_id] = r.selectedOptions[attr.characteristics_id] ?? null;
+            }
+            return { ...r, selectedOptions: nextSelected };
+          });
+        });
       } catch (error: any) {
         console.error("Unexpected error fetching attribute options:", error);
       } finally {
@@ -271,12 +360,36 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
     getAttributeOptions();
   }, [attributes]);
 
-  const handleOptionChange = (characteristicId: number, optionIdStr: string) => {
+  const handleRowOptionChange = (rowId: string, characteristicId: number, optionIdStr: string) => {
     const optionId = optionIdStr ? parseInt(optionIdStr, 10) : null;
-    setSelectedOptions(prev => ({
-      ...prev,
-      [characteristicId]: optionId,
-    }));
+    setRows(prev => {
+      const updated = prev.map(r => {
+        if (r.id !== rowId) return r;
+        const nextSelected = { ...r.selectedOptions, [characteristicId]: optionId };
+        const rowErrors: VariantRow['errors'] = { ...r.errors };
+        
+        // Check for duplicate variant
+        if (checkDuplicateVariant(prev, rowId, nextSelected)) {
+          rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente.';
+        } else {
+          delete rowErrors.duplicate;
+        }
+        
+        return { ...r, selectedOptions: nextSelected, errors: rowErrors };
+      });
+      
+      // Also check other rows to clear duplicate errors if they're no longer duplicates
+      return updated.map(r => {
+        if (r.id === rowId) return r; // Already processed above
+        const rowErrors: VariantRow['errors'] = { ...r.errors };
+        if (checkDuplicateVariant(updated, r.id, r.selectedOptions)) {
+          rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente.';
+        } else {
+          delete rowErrors.duplicate;
+        }
+        return { ...r, errors: rowErrors };
+      });
+    });
   };
 
   // Add new function to handle price conversion
@@ -292,185 +405,310 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
     return Math.round(num * 100) / 100;
   };
 
-  // Add effect to monitor price changes
-  useEffect(() => {
-    if (price !== '') {
-      console.log('Price state changed:', { 
-        original: price, 
-        converted: convertPriceToNumber(price),
-        type: typeof price 
-      });
-    }
-  }, [price]);
+  // Noisy price change logs removed for multi-row handling
 
-  // Modify the price input handling
-  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    // Only allow numbers and one decimal point
+  const handleRowPriceChange = (rowId: string, value: string) => {
     if (/^\d*\.?\d{0,2}$/.test(value) || value === '') {
-      // Store as string to preserve exact input
-      setPrice(value);
+      setRows(prev => prev.map(r => r.id === rowId ? { ...r, price: value } : r));
     }
   };
 
-  const handlePriceBlur = () => {
-    if (price !== '') {
-      // Convert to number and back to string to ensure consistent format
-      const formattedPrice = convertPriceToNumber(price).toString();
-      console.log('Price blur:', { 
-        before: price, 
-        after: formattedPrice 
+  const handleRowPriceBlur = (rowId: string) => {
+    setRows(prev => prev.map(r => {
+      if (r.id !== rowId) return r;
+      if (r.price === '') return r;
+      const formatted = convertPriceToNumber(r.price).toString();
+      return { ...r, price: formatted };
+    }));
+  };
+
+  const handleRowQuantityChange = (rowId: string, value: string) => {
+    setRows(prev => prev.map(r => r.id === rowId ? { ...r, quantity: value } : r));
+  };
+
+  const decrementRowQty = (rowId: string) => {
+    setRows(prev => prev.map(r => {
+      if (r.id !== rowId) return r;
+      const val = parseInt(r.quantity.toString() || '0', 10);
+      const next = Math.max(0, val - 1);
+      return { ...r, quantity: next };
+    }));
+  };
+
+  const incrementRowQty = (rowId: string) => {
+    setRows(prev => prev.map(r => {
+      if (r.id !== rowId) return r;
+      const val = parseInt(r.quantity.toString() || '0', 10);
+      const next = val + 1;
+      return { ...r, quantity: next };
+    }));
+  };
+
+  const addRow = () => {
+    setRows(prev => [...prev, createEmptyRow(attributes)]);
+  };
+
+  const removeRow = (rowId: string) => {
+    setRows(prev => {
+      const filtered = prev.length <= 1 ? prev : prev.filter(r => r.id !== rowId);
+      // Re-check for duplicates after removal and clear errors
+      return filtered.map(r => {
+        const rowErrors: VariantRow['errors'] = { ...r.errors };
+        if (checkDuplicateVariant(filtered, r.id, r.selectedOptions)) {
+          rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente.';
+        } else {
+          delete rowErrors.duplicate;
+        }
+        return { ...r, errors: rowErrors };
       });
-      setPrice(formattedPrice);
-    }
+    });
   };
 
-  const handleSaveStock = async () => {
-    // <-- validación primero -->
-    if (!validateForm()) return;
-
-    // Ensure price is properly formatted before saving
-    const finalPrice = price !== '' ? convertPriceToNumber(price) : 0;
-    console.log('Saving price:', { 
-      original: price, 
-      final: finalPrice 
-    });
-
-    setIsLoading(true);
+  // Calculate per-row variant and stock when options/location change
+  const recalcRowVariantAndStock = async (row: VariantRow): Promise<VariantRow> => {
     try {
+      if (!selectedProductId || !selectedLocationId) {
+        return { ...row, variantId: null, existingPrice: null, currentStock: 0 };
+      }
+      const selectedOptionIds = Object.values(row.selectedOptions).filter(id => id !== null) as number[];
+      if (attributes.length > 0 && selectedOptionIds.length !== attributes.length) {
+        return { ...row, variantId: null, existingPrice: null, currentStock: 0 };
+      }
       const userId = await getUserId();
-      if (!userId) throw new Error("Usuario no autenticado.");
-
-      let varianteId: number;
-      const selectedOptionIds = Object.values(selectedOptions).filter(id => id !== null) as number[];
-
+      if (!userId) return { ...row, variantId: null, existingPrice: null, currentStock: 0 };
       const optionsArrayLiteral = `{${selectedOptionIds.join(',')}}`;
       const { data: rpcResult, error: searchError } = await supabase
         .rpc('find_variant_by_options', {
           p_user_id: userId,
           p_product_id: selectedProductId,
-          p_option_ids: optionsArrayLiteral 
+          p_option_ids: optionsArrayLiteral
         });
-
       if (searchError) {
-        console.error("Error buscando variante via RPC:", searchError);
-        throw new Error(`Error al buscar variante (RPC): ${searchError.message}. Verifica la función y el formato del array.`);
+        console.error('Error finding variant:', searchError);
+        return { ...row, variantId: null, existingPrice: null, currentStock: 0 };
       }
-
-      const foundVariant = rpcResult && rpcResult.length > 0 ? rpcResult[0] : null;
-
-      if (foundVariant && foundVariant.variant_id) {
-        varianteId = foundVariant.variant_id;
-      } else {
-        const { data: newVariantData, error: variantInsertError } = await supabase
-          .from('productVariants')
-          .insert({
-            product_id: selectedProductId,
-            user_id: userId
-          })
-          .select('variant_id')
-          .single();
-
-        if (variantInsertError || !newVariantData?.variant_id) {
-          throw new Error(`Error creando la nueva variante: ${variantInsertError?.message || 'No se obtuvo ID'}`);
-        }
-        varianteId = newVariantData.variant_id;
-
-        if (selectedOptionIds.length > 0) {
-          const varianteOpcionesPayload = selectedOptionIds.map(optId => ({
-            variant_id: varianteId,
-            option_id: optId,
-          }));
-
-          const { error: optionsInsertError } = await supabase
-            .from('optionVariants')
-            .insert(varianteOpcionesPayload);
-
-          if (optionsInsertError) {
-            console.error("Error vinculando opciones, intentando eliminar variante huérfana...");
-            await supabase.from('producto_variantes').delete().eq('variant_id', varianteId);
-            throw new Error(`Error vinculando opciones: ${optionsInsertError.message}`);
-          }
-        } else {
-          console.log("Producto sin opciones, no se inserta en variante_opciones.");
-        }
+      const foundVariantId = rpcResult?.[0]?.variant_id ?? null;
+      if (!foundVariantId) {
+        return { ...row, variantId: null, existingPrice: null, currentStock: 0 };
       }
-
-      const { data: stockCheck, error: stockCheckError } = await supabase
+      const { data: stockCheck, error: stockError } = await supabase
         .from('stock')
         .select('id, stock, price')
-        .eq('variant_id', varianteId)
+        .eq('variant_id', foundVariantId)
         .eq('location', selectedLocationId)
         .maybeSingle();
-
-      if (stockCheckError) {
-        throw new Error(`Error al verificar stock existente: ${stockCheckError.message}`);
+      if (stockError) {
+        console.error('Error checking stock:', stockError);
+        return { ...row, variantId: foundVariantId, existingPrice: null, currentStock: 0 };
       }
+      // Lookup any existing price for this variant across any branch
+      let globalExistingPrice: number | null = null;
+      const { data: anyPriceRows, error: anyPriceErr } = await supabase
+        .from('stock')
+        .select('price')
+        .eq('variant_id', foundVariantId)
+        .not('price', 'is', null)
+        .limit(1);
+      if (!anyPriceErr && anyPriceRows && anyPriceRows.length > 0) {
+        const p = anyPriceRows[0]?.price as number | null;
+        if (p !== null && typeof p !== 'undefined') globalExistingPrice = p;
+      }
+      return {
+        ...row,
+        variantId: foundVariantId,
+        existingPrice: globalExistingPrice !== null ? globalExistingPrice : (stockCheck?.price ?? null),
+        currentStock: stockCheck?.stock ?? 0,
+      };
+    } catch (e) {
+      console.error('Error in recalcRowVariantAndStock:', e);
+      return { ...row, variantId: null, existingPrice: null, currentStock: 0 };
+    }
+  };
 
-      console.log("Final stock check before save:", stockCheck); // Debug log
-      console.log("Current existingPrice state:", existingPrice); // Debug log
+  useEffect(() => {
+    let isCancelled = false;
+    const run = async () => {
+      const updated: VariantRow[] = [];
+      for (const row of rows) {
+        const next = await recalcRowVariantAndStock(row);
+        if (isCancelled) return;
+        updated.push(next);
+      }
+      if (!isCancelled) setRows(updated);
+    };
+    if (rows.length > 0) run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProductId, selectedLocationId, attributes, attributeOptions]);
 
-      if (stockCheck && stockCheck.id) {
-        const currentStock = stockCheck.stock || 0;
-        const newStockLevel = currentStock + parseInt(quantity.toString(), 10);
+  // Recalc when a specific row options change
+  useEffect(() => {
+    const currentSignature = rows.map(r => JSON.stringify(r.selectedOptions)).join('|');
+    
+    // Only run if selectedOptions actually changed
+    if (currentSignature === prevOptionsRef.current) {
+      return;
+    }
+    
+    prevOptionsRef.current = currentSignature;
+    
+    let isCancelled = false;
+    const run = async () => {
+      const updated: VariantRow[] = [];
+      for (const row of rows) {
+        const next = await recalcRowVariantAndStock(row);
+        if (isCancelled) return;
+        updated.push(next);
+      }
+      if (!isCancelled) setRows(updated);
+    };
+    run();
+    
+    return () => {
+      isCancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows.map(r => JSON.stringify(r.selectedOptions)).join('|')]);
 
-        const updateData: {
-          stock: number;
-          added_at: string;
-          price?: number;
-        } = {
-          stock: newStockLevel,
-          added_at: new Date().toISOString()
-        };
+  // Continuously check for duplicates and update error messages
+  useEffect(() => {
+    setRows(prev => {
+      let hasChanges = false;
+      const updated = prev.map(row => {
+        const isDuplicate = checkDuplicateVariant(prev, row.id, row.selectedOptions);
+        const hadDuplicate = !!row.errors?.duplicate;
+        
+        // Only update if duplicate status changed
+        if (isDuplicate !== hadDuplicate) {
+          hasChanges = true;
+          const rowErrors: VariantRow['errors'] = { ...row.errors };
+          if (isDuplicate) {
+            rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente o elimina la variante duplicada.';
+          } else {
+            delete rowErrors.duplicate;
+          }
+          return { ...row, errors: rowErrors };
+        }
+        return row;
+      });
+      
+      return hasChanges ? updated : prev;
+    });
+  }, [rows.length, rows.map(r => JSON.stringify(r.selectedOptions)).join('|')]);
 
-        // Only add price to update if it doesn't exist
-        if (!stockCheck.price) {
-          updateData.price = finalPrice;
+  const handleSaveStock = async () => {
+    // <-- validación primero -->
+    if (!validateForm()) return;
+
+    setIsLoading(true);
+    try {
+      const userId = await getUserId();
+      if (!userId) throw new Error("Usuario no autenticado.");
+      
+      // Check for duplicates before saving (should not happen if validation worked, but double-check)
+      const hasDuplicates = rows.some(row => checkDuplicateVariant(rows, row.id, row.selectedOptions));
+      if (hasDuplicates) {
+        throw new Error("No se puede guardar: existen variantes duplicadas. Por favor, elimina o modifica las variantes duplicadas.");
+      }
+      
+      // Process each row
+      for (const row of rows) {
+        const selectedOptionIds = Object.values(row.selectedOptions).filter(id => id !== null) as number[];
+
+        // 1) Ensure variant exists (use existing or create new)
+        let variantId: number | null = row.variantId;
+        if (!variantId) {
+          const { data: newVariantData, error: variantInsertError } = await supabase
+            .from('productVariants')
+            .insert({
+              product_id: selectedProductId,
+              user_id: userId
+            })
+            .select('variant_id')
+            .single();
+
+          if (variantInsertError || !newVariantData?.variant_id) {
+            throw new Error(`Error creando la nueva variante: ${variantInsertError?.message || 'No se obtuvo ID'}`);
+          }
+          variantId = newVariantData.variant_id;
+
+          if (selectedOptionIds.length > 0) {
+            const varianteOpcionesPayload = selectedOptionIds.map(optId => ({
+              variant_id: variantId!,
+              option_id: optId,
+            }));
+            const { error: optionsInsertError } = await supabase
+              .from('optionVariants')
+              .insert(varianteOpcionesPayload);
+            if (optionsInsertError) {
+              console.error('Error vinculando opciones, intentando eliminar variante huérfana...');
+              await supabase.from('productVariants').delete().eq('variant_id', variantId);
+              throw new Error(`Error vinculando opciones: ${optionsInsertError.message}`);
+            }
+          }
         }
 
-        console.log("Updating stock with data:", updateData); // Debug log
-
-        const { error: updateError } = await supabase
+        // 2) Upsert stock for this location
+        const { data: stockCheck, error: stockCheckError } = await supabase
           .from('stock')
-          .update(updateData)
-          .eq('id', stockCheck.id);
-
-        if (updateError) {
-          throw new Error(`Error actualizando stock: ${updateError.message}`);
+          .select('id, stock, price')
+          .eq('variant_id', variantId)
+          .eq('location', selectedLocationId)
+          .maybeSingle();
+        if (stockCheckError) {
+          throw new Error(`Error al verificar stock existente: ${stockCheckError.message}`);
         }
-        console.log("Stock actualizado.");
-      } else {
-        console.log("Insertando nuevo registro de stock.");
-        const { error: insertError } = await supabase
-          .from('stock')
-          .insert({
-            variant_id: varianteId,
+
+        const qtyToAdd = parseInt(row.quantity.toString(), 10);
+        const finalPriceForRow = row.existingPrice !== null
+          ? row.existingPrice
+          : (row.price !== '' ? convertPriceToNumber(row.price) : 0);
+
+        if (stockCheck && stockCheck.id) {
+          const currentStockLevel = stockCheck.stock || 0;
+          const newStockLevel = currentStockLevel + qtyToAdd;
+          const updateData: { stock: number; added_at: string; price?: number } = {
+            stock: newStockLevel,
+            added_at: entryDate ? new Date(entryDate).toISOString() : new Date().toISOString(),
+          };
+          if (!stockCheck.price && finalPriceForRow > 0) {
+            updateData.price = finalPriceForRow;
+          }
+          const { error: updateError } = await supabase
+            .from('stock')
+            .update(updateData)
+            .eq('id', stockCheck.id);
+          if (updateError) {
+            throw new Error(`Error actualizando stock: ${updateError.message}`);
+          }
+        } else {
+          const payload: Record<string, any> = {
+            variant_id: variantId,
             location: selectedLocationId,
-            stock: parseInt(quantity.toString(), 10),
-            price: finalPrice,
+            stock: qtyToAdd,
             user_id: userId,
-            added_at: new Date().toISOString()
-          });
-
-        if (insertError) {
-          throw new Error(`Error insertando nuevo stock: ${insertError.message}`);
+            added_at: entryDate ? new Date(entryDate).toISOString() : new Date().toISOString(),
+          };
+          if (finalPriceForRow > 0) payload.price = finalPriceForRow;
+          const { error: insertError } = await supabase
+            .from('stock')
+            .insert(payload);
+          if (insertError) {
+            throw new Error(`Error insertando nuevo stock: ${insertError.message}`);
+          }
         }
-        console.log("Nuevo stock insertado.");
       }
 
       toast({
         variant: "success",
         title: "¡Éxito!",
-        description: "Stock agregado correctamente",
+        description: "Inventario agregado para las variantes seleccionadas",
       });
       onSaveStock();
       // limpiar campos
-      setSelectedProductId(null);
-      setSelectedOptions({});
-      setQuantity('');
-      setPrice('');
+      setSelectedProductId(initialProductId ?? null);
+      setRows(attributes.length > 0 ? [createEmptyRow(attributes)] : []);
       setEntryDate('');
-      setSelectedLocationId(null);
+      setSelectedLocationId(initialLocationId ?? null);
       onClose();
     } catch (error: any) {
       console.error("Error detallado en handleSaveStock:", error);
@@ -485,147 +723,238 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
   };
 
   return (
-    <div>
-      <Card className="w-full">
-        <CardContent className="p-6">
-          <h1 className="text-lg font-semibold capitalize">Agregar Inventario</h1>
+    <Card className="w-full">
+      <CardContent className="p-6">
+          <h1 className="text-lg font-semibold mb-4">Agregar inventario</h1>
 
-          {/* Producto */}
-          <div className="my-4">
-            <Label htmlFor="product-select">Producto</Label>
-            <select
-              id="product-select"
-              className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
-              value={selectedProductId ?? ""}
-              onChange={e => setSelectedProductId(e.target.value ? parseInt(e.target.value, 10) : null)}
-              disabled={isLoading}
-            >
-              <option value="" disabled>
-                {isLoading ? "Cargando productos..." : "Selecciona un producto"}
-              </option>
-              {products.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            {productError && <p className="text-red-600 text-sm mt-1">{productError}</p>}
-          </div>
-
-          {/* Atributos y opciones */}
-          {attributes.length > 0 && (
-            <div className="mb-4 border p-4 rounded-md">
-              <h2 className="font-semibold mb-2">Selecciona Opciones</h2>
-              {attributes.map(attr => {
-                const opts = attributeOptions[attr.characteristics_id] || [];
-                const sel = selectedOptions[attr.characteristics_id] ?? "";
-                return (
-                  <div key={attr.characteristics_id} className="mb-3">
-                    <Label htmlFor={`attr-${attr.characteristics_id}`}>{attr.name}</Label>
-                    <select
-                      id={`attr-${attr.characteristics_id}`}
-                      className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
-                      value={sel}
-                      onChange={e => handleOptionChange(attr.characteristics_id, e.target.value)}
-                      disabled={isLoading}
-                    >
-                      <option value="" disabled>
-                        {isLoading && opts.length === 0
-                          ? "Cargando opciones..."
-                          : `Selecciona ${attr.name}`}
-                      </option>
-                      {opts.length > 0
-                        ? opts.map(o => <option key={o.id} value={o.id}>{o.value}</option>)
-                        : !isLoading && <option value="" disabled>No hay opciones</option>}
-                    </select>
-                  </div>
-                );
-              })}
-              {optionsError && <p className="text-red-600 text-sm mt-1">{optionsError}</p>}
+          {/* Mostrar producto seleccionado cuando viene predefinido */}
+          {hideProductSelect ? (
+            selectedProductName ? (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <Label className="text-sm text-gray-600">Producto</Label>
+                <p className="text-base font-medium text-gray-900 mt-1">{selectedProductName}</p>
+              </div>
+            ) : (
+              <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                <Label className="text-sm text-gray-600">Producto</Label>
+                <p className="text-base text-gray-500 mt-1">Cargando...</p>
+              </div>
+            )
+          ) : (
+            <div className="my-4">
+              <Label htmlFor="product-select">Producto</Label>
+              <select
+                id="product-select"
+                className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
+                value={selectedProductId ?? ""}
+                onChange={e => setSelectedProductId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                disabled={isLoading}
+              >
+                <option value="" disabled>
+                  {isLoading ? "Cargando productos..." : "Selecciona un producto"}
+                </option>
+                {products.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              {productError && <p className="text-red-600 text-sm mt-1">{productError}</p>}
             </div>
           )}
 
-          {/* Ubicación */}
-          <div className="mb-4">
-            <Label htmlFor="location-select">Ubicación</Label>
-            <select
-              id="location-select"
-              className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
-              value={selectedLocationId ?? ""}
-              onChange={e => setSelectedLocationId(e.target.value ? parseInt(e.target.value, 10) : null)}
-              disabled={isLoading || ubicaciones.length === 0}
-            >
-              <option value="" disabled>
-                {isLoading && ubicaciones.length === 0
-                  ? "Cargando ubicaciones..."
-                  : "Selecciona una ubicación"}
-              </option>
-              {ubicaciones.map(loc => (
-                <option key={loc.id} value={loc.id}>{loc.name}</option>
-              ))}
-            </select>
-            {locationError && <p className="text-red-600 text-sm mt-1">{locationError}</p>}
-          </div>
-
-          {/* Cantidad */}
-          <div className="mb-4">
-            <Label htmlFor="quantity">Cantidad a agregar</Label>
-            <Input
-              id="quantity"
-              type="number"
-              value={quantity}
-              onChange={e => setQuantity(e.target.value)}
-              placeholder="Cantidad"
-              className="mt-1"
-              disabled={isLoading}
-              min={1}
-            />
-            {quantityError && <p className="text-red-600 text-sm mt-1">{quantityError}</p>}
-          </div>
-
-          {/* Precio */}
-          <div className="mb-4">
-            <Label htmlFor="price">
-              {existingPrice !== null ? "Precio (valor existente)" : "Precio"}
-            </Label>
-            <div className="relative">
-              <Input
-                id="price"
-                type="number"
-                value={price}
-                onChange={handlePriceChange}
-                onBlur={handlePriceBlur}
-                placeholder="Precio del producto"
-                className="mt-1"
-                disabled={isLoading || existingPrice !== null}
-                min={0.01}
-                step={0.01}
-                // Add onFocus to prevent browser's number input behavior
-                onFocus={(e) => {
-                  // Select all text on focus for easier editing
-                  e.target.select();
-                }}
-                // Prevent browser's default number input behavior
-                onKeyDown={(e) => {
-                  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                    e.preventDefault();
-                  }
-                }}
-              />
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                MXN
+          {/* Mostrar sucursal seleccionada cuando viene predefinida */}
+          {hideLocationSelect ? (
+            selectedLocationName ? (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                <Label className="text-sm text-gray-600">Sucursal</Label>
+                <p className="text-base font-medium text-gray-900 mt-1">{selectedLocationName}</p>
               </div>
+            ) : (
+              <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                <Label className="text-sm text-gray-600">Sucursal</Label>
+                <p className="text-base text-gray-500 mt-1">Cargando...</p>
+              </div>
+            )
+          ) : (
+            <div className="mb-4">
+              <Label htmlFor="location-select">Sucursal</Label>
+              <select
+                id="location-select"
+                className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
+                value={selectedLocationId ?? ''}
+                onChange={e => setSelectedLocationId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                disabled={isLoading || ubicaciones.length === 0}
+              >
+                <option value="" disabled>
+                  {isLoading && ubicaciones.length === 0 ? 'Cargando sucursales...' : 'Selecciona una sucursal'}
+                </option>
+                {ubicaciones.map(loc => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+              {locationError && <p className="text-red-600 text-sm mt-1">{locationError}</p>}
             </div>
-            {existingPrice !== null ? (
-              <p className="text-sm text-blue-500 mt-1">
-                Esta variante ya tiene un precio establecido de {existingPrice} MXN.
-              </p>
-            ) : priceError ? (
-              <p className="text-red-600 text-sm mt-1">{priceError}</p>
-            ) : null}
+          )}
+
+          {/* Variantes múltiples */}
+          <div className="mb-4 border border-gray-300 p-4 rounded-md bg-gray-50">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="font-semibold text-gray-900">Variantes del producto</h2>
+                <p className="text-sm text-gray-600">Agrega las cantidades para cada variante que desees ingresar</p>
+              </div>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={addRow} 
+                disabled={isLoading || !selectedProductId || !selectedLocationId}
+                className="bg-white hover:bg-gray-100"
+              >
+                + Agregar variante
+              </Button>
+            </div>
+            
+            {attributes.length === 0 && selectedProductId && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                <p className="text-sm text-yellow-800">
+                  Este producto no tiene variantes configuradas. Puedes agregar inventario directamente ingresando la cantidad y precio.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {rows.map((row, index) => (
+                <div key={row.id} className="border border-gray-300 bg-white rounded-md p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-medium text-gray-700">Variante #{index + 1}</h3>
+                    {rows.length > 1 && (
+                      <Button 
+                        type="button" 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => removeRow(row.id)} 
+                        disabled={isLoading}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        Eliminar
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    {/* Attribute selectors per row */}
+                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {attributes.map(attr => {
+                        const opts = attributeOptions[attr.characteristics_id] || [];
+                        const sel = row.selectedOptions[attr.characteristics_id] ?? '';
+                        return (
+                          <div key={`${row.id}-${attr.characteristics_id}`}>
+                            <Label htmlFor={`row-${row.id}-attr-${attr.characteristics_id}`}>{attr.name}</Label>
+                            <select
+                              id={`row-${row.id}-attr-${attr.characteristics_id}`}
+                              className={`w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373] ${
+                                row.errors?.duplicate ? 'border-red-500' : ''
+                              }`}
+                              value={sel}
+                              onChange={e => handleRowOptionChange(row.id, attr.characteristics_id, e.target.value)}
+                              disabled={isLoading}
+                            >
+                              <option value="" disabled>
+                                {isLoading && opts.length === 0 ? 'Cargando opciones...' : `Selecciona ${attr.name}`}
+                              </option>
+                              {opts.length > 0 ? (
+                                opts.map(o => <option key={o.id} value={o.id}>{o.value}</option>)
+                              ) : (
+                                !isLoading && <option value="" disabled>No hay opciones</option>
+                              )}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Quantity */}
+                    <div>
+                      <Label>Cantidad a agregar</Label>
+                      <div className="mt-1 flex items-center gap-2">
+                        <button 
+                          type="button" 
+                          onClick={() => decrementRowQty(row.id)} 
+                          className="w-9 h-9 border rounded grid place-items-center hover:bg-gray-100 transition-colors"
+                          disabled={isLoading}
+                        >
+                          -
+                        </button>
+                        <Input
+                          type="number"
+                          value={row.quantity}
+                          onChange={e => handleRowQuantityChange(row.id, e.target.value)}
+                          className="w-24 text-center"
+                          disabled={isLoading}
+                          min={0}
+                        />
+                        <button 
+                          type="button" 
+                          onClick={() => incrementRowQty(row.id)} 
+                          className="w-9 h-9 border rounded grid place-items-center hover:bg-gray-100 transition-colors"
+                          disabled={isLoading}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div className="mt-2 p-2 bg-white border border-gray-200 rounded">
+                        <p className="text-xs text-gray-600">Existencia actual:</p>
+                        <p className="text-sm font-semibold text-gray-900">{row.currentStock} unidades</p>
+                      </div>
+                      {row.errors?.quantity && <p className="text-red-600 text-sm mt-1">{row.errors.quantity}</p>}
+                    </div>
+
+                    {/* Price */}
+                    <div>
+                      <Label>Precio</Label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          value={row.price}
+                          onChange={e => handleRowPriceChange(row.id, e.target.value)}
+                          onBlur={() => handleRowPriceBlur(row.id)}
+                          placeholder="Precio"
+                          className="mt-1"
+                          disabled={isLoading || row.existingPrice !== null}
+                          min={0.01}
+                          step={0.01}
+                          onFocus={(e) => e.target.select()}
+                          onKeyDown={(e) => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault(); }}
+                        />
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">MXN</div>
+                      </div>
+                      {row.existingPrice !== null ? (
+                        <p className="text-sm text-blue-500 mt-1">Precio actual: {row.existingPrice} MXN</p>
+                      ) : row.errors?.price ? (
+                        <p className="text-red-600 text-sm mt-1">{row.errors.price}</p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Row-level attribute error */}
+                  {row.errors?.options && (
+                    <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
+                      <p className="text-red-600 text-sm">{row.errors.options}</p>
+                    </div>
+                  )}
+                  
+                  {/* Row-level duplicate error */}
+                  {row.errors?.duplicate && (
+                    <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
+                      <p className="text-red-600 text-sm font-medium">{row.errors.duplicate}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Fecha de entrada */}
           <div className="mb-4">
-            <Label htmlFor="entry-date">Fecha de entrada</Label>
+            <Label htmlFor="entry-date">Introduce la fecha de ingreso del inventario por agregar:</Label>
             <Input
               id="entry-date"
               type="date"
@@ -636,7 +965,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
             {dateError && <p className="text-red-600 text-sm mt-1">{dateError}</p>}
           </div>
 
-          <div className="flex justify-end gap-4 mt-6">
+          <div className="flex justify-center gap-4 mt-6">
             <Button variant="outline" onClick={onClose} disabled={isLoading}>
               Cancelar
             </Button>
@@ -648,9 +977,8 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ onSaveStock, onCl
               {isLoading ? 'Actualizando...' : 'Guardar'}
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+      </CardContent>
+    </Card>
   );
 };
 

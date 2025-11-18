@@ -19,12 +19,9 @@ export default function SuperAdminShell({ children }: { children: ReactNode }) {
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session?.user?.id) {
-            console.log('No session or user ID found');
             setUserName('No session');
             return;
           }
-
-          console.log('Current user ID:', session.user.id);
 
           // First check the user's role
           const { data: userRole, error: roleError } = await supabase
@@ -38,10 +35,7 @@ export default function SuperAdminShell({ children }: { children: ReactNode }) {
             return;
           }
 
-          console.log('User role:', userRole);
-
           if (userRole !== 'superadmin') {
-            console.log('User is not a superadmin');
             setUserName('Not authorized');
             return;
           }
@@ -58,10 +52,7 @@ export default function SuperAdminShell({ children }: { children: ReactNode }) {
             return;
           }
 
-          console.log('Superadmin profiles found:', profiles);
-
           if (!profiles || profiles.length === 0) {
-            console.log('No superadmin profile found for user ID:', session.user.id);
             setUserName('No superadmin profile');
             return;
           }

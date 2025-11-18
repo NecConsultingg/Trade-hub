@@ -160,7 +160,6 @@ const NegociosView: React.FC<NegociosViewProps> = ({ onClose }) => {
     setDeleteError(null);
 
     try {
-      console.log('Attempting to delete business with ID:', id);
       const response = await fetch(`/api/delete-business?id=${id}`, {
         method: 'DELETE',
         headers: {
@@ -169,7 +168,6 @@ const NegociosView: React.FC<NegociosViewProps> = ({ onClose }) => {
       });
 
       const data = await response.json();
-      console.log('Delete response:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Error al eliminar el negocio');
