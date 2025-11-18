@@ -230,7 +230,6 @@ const AddEmployee: React.FC<AddEmployeeProps> = ({ onClose, onEmployeeAdded }) =
         // Don't throw here as the employee is already created
       }
 
-      console.log('Empleado agregado exitosamente');
       setLoading(false);
       onEmployeeAdded();
       onClose();

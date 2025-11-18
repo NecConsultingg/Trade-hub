@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 interface InventoryItem {
   id: number; 
   variant_id: number;
+  product_id: number;
   productName: string;
   name: string;
   quantity: number;
@@ -159,12 +160,13 @@ const LocationInventory: React.FC = () => {
           });
 
           if (productName === 'Nombre no encontrado') {
-            console.warn(`Inventory item with id ${item.id} missing product name.`);
+            // Product name not found for this inventory item
           }
 
           return {
             id: item.id,
             variant_id: item.variant_id,
+            product_id: productVariant?.product_id ?? 0,
             productName: productName,
             name: productName,
             quantity: item.stock,
@@ -292,7 +294,14 @@ const LocationInventory: React.FC = () => {
                     <td className="px-6 py-4 text-sm">
                       <button
                         className="text-indigo-600 hover:text-indigo-900"
-                        onClick={() => router.push(`/dashboard/sucursales/${locationId}/inventario/${item.id}`)}
+                        onClick={() => {
+                          if (item.product_id && item.product_id > 0) {
+                            router.push(`/dashboard/sucursales/${locationId}/inventario/${item.product_id}`);
+                          } else {
+                            console.error('Product ID is invalid:', item.product_id);
+                          }
+                        }}
+                        disabled={!item.product_id || item.product_id === 0}
                       >
                         <Eye className="w-4 h-4 mx-auto" />
                       </button>

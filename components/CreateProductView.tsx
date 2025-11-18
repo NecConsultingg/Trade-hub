@@ -289,7 +289,6 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
           .insert(optionsToInsert);
   
         if (error) throw error;
-        console.log("Inserted options successfully");
       }
     } catch (error) {
       console.error('Error inserting options:', error);
@@ -485,7 +484,7 @@ const CreateProductView: React.FC<CreateProductViewProps> = ({ onSaveProduct, on
           </div>
           {/* ———— Aquí insertas tu Modal personalizado ———— */}
         <Modal open={showModal} onClose={() => setShowModal(false)}>
-          <h2 className="text-xl font-semibold mb-2">Producto creado 🎉</h2>
+          <h2 className="text-xl font-semibold mb-2">Producto creado</h2>
           <p className="mb-6 text-gray-600">¿Deseas agregar inventario de este producto?</p>
           <div className="flex flex-col gap-3">
             <Button

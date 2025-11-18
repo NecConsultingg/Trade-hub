@@ -99,7 +99,9 @@ type SelectedFilters = Record<number, Set<number>>;
 
 const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
   const router = useRouter();
-  const { id: productId } = useParams<{ id: string }>();
+  const params = useParams<{ id?: string; productId?: string }>();
+  // Handle both route structures: /inventario/[id] and /sucursales/[id]/inventario/[productId]
+  const productId = params.productId || params.id;
 
   const [overview, setOverview] = useState<ProductOverview | null>(null);
   const [variantTable, setVariantTable] = useState<VariantRow[]>([]);
@@ -355,9 +357,6 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
   const handleDelete = async () => {
     if (!product) return;
     
-    console.log('=== Frontend Delete Process Start ===');
-    console.log('Attempting to delete product:', product.id);
-    
     setUpdateLoading(true);
     setUpdateError(null);
     
@@ -370,13 +369,10 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
       });
 
       const data = await response.json();
-      console.log('Delete API Response:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Error al eliminar el producto');
       }
-
-      console.log('Product deleted successfully, closing view and redirecting...');
       
       toast({
         title: "¡Éxito!",
@@ -394,7 +390,6 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = () => {
         description: errorMessage || "Error desconocido al eliminar el producto. Por favor, intenta de nuevo.",
       });
     } finally {
-      console.log('=== Frontend Delete Process Complete ===');
       setUpdateLoading(false);
       setShowDeleteDialog(false);
     }

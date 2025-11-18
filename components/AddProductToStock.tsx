@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +35,7 @@ type VariantRow = {
     options?: string;
     quantity?: string;
     price?: string;
+    duplicate?: string;
   };
 };
 
@@ -58,6 +59,9 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
   const [selectedLocationName, setSelectedLocationName] = useState<string>('');
 
   const [isLoading, setIsLoading] = useState(false);
+
+  // Add this ref to track previous selectedOptions
+  const prevOptionsRef = useRef<string>('');
 
   // CRITICAL: Sync props to state when they change
   useEffect(() => {
@@ -96,6 +100,74 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
     setRows(prev => (prev.length === 0 ? [createEmptyRow(attrs)] : prev));
   };
 
+  // Helper function to check if a variant combination already exists
+  const checkDuplicateVariant = (rows: VariantRow[], currentRowId: string, selectedOptions: Record<number, number | null>): boolean => {
+    // Only check for duplicates if all options are selected (not null)
+    const selectedOptionIds = Object.values(selectedOptions).filter(v => v !== null) as number[];
+    if (selectedOptionIds.length === 0 || selectedOptionIds.length !== attributes.length) {
+      return false; // Incomplete selections don't count as duplicates
+    }
+
+    // Create a signature for the current selection
+    const currentSignature = JSON.stringify(selectedOptions);
+
+    // Check if any other row has the same signature
+    return rows.some(row => {
+      if (row.id === currentRowId) return false; // Don't compare with itself
+      const rowOptionIds = Object.values(row.selectedOptions).filter(v => v !== null) as number[];
+      if (rowOptionIds.length !== attributes.length) return false; // Incomplete rows don't count
+      return JSON.stringify(row.selectedOptions) === currentSignature;
+    });
+  };
+
+  // Function to merge duplicate variants by combining quantities
+  const mergeDuplicateVariants = (rowsToMerge: VariantRow[]): VariantRow[] => {
+    const mergedMap = new Map<string, VariantRow>();
+    
+    for (const row of rowsToMerge) {
+      const selectedOptionIds = Object.values(row.selectedOptions).filter(v => v !== null) as number[];
+      
+      // Skip incomplete rows
+      if (selectedOptionIds.length === 0 || selectedOptionIds.length !== attributes.length) {
+        mergedMap.set(row.id, row);
+        continue;
+      }
+      
+      const signature = JSON.stringify(row.selectedOptions);
+      
+      if (mergedMap.has(signature)) {
+        // Merge with existing variant
+        const existing = mergedMap.get(signature)!;
+        const existingQty = parseInt(existing.quantity.toString() || '0', 10);
+        const newQty = parseInt(row.quantity.toString() || '0', 10);
+        const mergedQty = existingQty + newQty;
+        
+        // Use the price from the first variant, or the one that has a price
+        const mergedPrice = existing.price || row.price;
+        
+        // Preserve variantId, existingPrice, and currentStock from existing (prefer non-null values)
+        const mergedVariantId = existing.variantId || row.variantId;
+        const mergedExistingPrice = existing.existingPrice ?? row.existingPrice;
+        const mergedCurrentStock = existing.currentStock || row.currentStock;
+        
+        mergedMap.set(signature, {
+          ...existing,
+          quantity: mergedQty,
+          price: mergedPrice,
+          variantId: mergedVariantId,
+          existingPrice: mergedExistingPrice,
+          currentStock: mergedCurrentStock,
+          errors: { ...existing.errors }
+        });
+      } else {
+        // First occurrence of this variant
+        mergedMap.set(signature, { ...row, errors: { ...row.errors } });
+      }
+    }
+    
+    return Array.from(mergedMap.values());
+  };
+
   // Validación previa al guardar
   const validateForm = (): boolean => {
     let valid = true;
@@ -122,6 +194,13 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
         rowErrors.options = 'Selecciona una opción para cada atributo.';
         valid = false;
       }
+      
+      // Check for duplicate variants (block save if duplicates exist)
+      if (checkDuplicateVariant(rows, row.id, row.selectedOptions)) {
+        rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente o elimina la variante duplicada.';
+        valid = false;
+      }
+      
       const qty = parseInt(row.quantity.toString(), 10);
       if (isNaN(qty) || qty <= 0) {
         rowErrors.quantity = 'Cantidad inválida (mayor a 0).';
@@ -283,11 +362,34 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
 
   const handleRowOptionChange = (rowId: string, characteristicId: number, optionIdStr: string) => {
     const optionId = optionIdStr ? parseInt(optionIdStr, 10) : null;
-    setRows(prev => prev.map(r => {
-      if (r.id !== rowId) return r;
-      const nextSelected = { ...r.selectedOptions, [characteristicId]: optionId };
-      return { ...r, selectedOptions: nextSelected };
-    }));
+    setRows(prev => {
+      const updated = prev.map(r => {
+        if (r.id !== rowId) return r;
+        const nextSelected = { ...r.selectedOptions, [characteristicId]: optionId };
+        const rowErrors: VariantRow['errors'] = { ...r.errors };
+        
+        // Check for duplicate variant
+        if (checkDuplicateVariant(prev, rowId, nextSelected)) {
+          rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente.';
+        } else {
+          delete rowErrors.duplicate;
+        }
+        
+        return { ...r, selectedOptions: nextSelected, errors: rowErrors };
+      });
+      
+      // Also check other rows to clear duplicate errors if they're no longer duplicates
+      return updated.map(r => {
+        if (r.id === rowId) return r; // Already processed above
+        const rowErrors: VariantRow['errors'] = { ...r.errors };
+        if (checkDuplicateVariant(updated, r.id, r.selectedOptions)) {
+          rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente.';
+        } else {
+          delete rowErrors.duplicate;
+        }
+        return { ...r, errors: rowErrors };
+      });
+    });
   };
 
   // Add new function to handle price conversion
@@ -347,7 +449,19 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
   };
 
   const removeRow = (rowId: string) => {
-    setRows(prev => prev.length <= 1 ? prev : prev.filter(r => r.id !== rowId));
+    setRows(prev => {
+      const filtered = prev.length <= 1 ? prev : prev.filter(r => r.id !== rowId);
+      // Re-check for duplicates after removal and clear errors
+      return filtered.map(r => {
+        const rowErrors: VariantRow['errors'] = { ...r.errors };
+        if (checkDuplicateVariant(filtered, r.id, r.selectedOptions)) {
+          rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente.';
+        } else {
+          delete rowErrors.duplicate;
+        }
+        return { ...r, errors: rowErrors };
+      });
+    });
   };
 
   // Calculate per-row variant and stock when options/location change
@@ -428,6 +542,15 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
 
   // Recalc when a specific row options change
   useEffect(() => {
+    const currentSignature = rows.map(r => JSON.stringify(r.selectedOptions)).join('|');
+    
+    // Only run if selectedOptions actually changed
+    if (currentSignature === prevOptionsRef.current) {
+      return;
+    }
+    
+    prevOptionsRef.current = currentSignature;
+    
     let isCancelled = false;
     const run = async () => {
       const updated: VariantRow[] = [];
@@ -439,8 +562,38 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
       if (!isCancelled) setRows(updated);
     };
     run();
+    
+    return () => {
+      isCancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows.map(r => JSON.stringify(r.selectedOptions)).join('|')]);
+
+  // Continuously check for duplicates and update error messages
+  useEffect(() => {
+    setRows(prev => {
+      let hasChanges = false;
+      const updated = prev.map(row => {
+        const isDuplicate = checkDuplicateVariant(prev, row.id, row.selectedOptions);
+        const hadDuplicate = !!row.errors?.duplicate;
+        
+        // Only update if duplicate status changed
+        if (isDuplicate !== hadDuplicate) {
+          hasChanges = true;
+          const rowErrors: VariantRow['errors'] = { ...row.errors };
+          if (isDuplicate) {
+            rowErrors.duplicate = 'Esta variante ya está agregada. Por favor, selecciona una combinación diferente o elimina la variante duplicada.';
+          } else {
+            delete rowErrors.duplicate;
+          }
+          return { ...row, errors: rowErrors };
+        }
+        return row;
+      });
+      
+      return hasChanges ? updated : prev;
+    });
+  }, [rows.length, rows.map(r => JSON.stringify(r.selectedOptions)).join('|')]);
 
   const handleSaveStock = async () => {
     // <-- validación primero -->
@@ -450,6 +603,13 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
     try {
       const userId = await getUserId();
       if (!userId) throw new Error("Usuario no autenticado.");
+      
+      // Check for duplicates before saving (should not happen if validation worked, but double-check)
+      const hasDuplicates = rows.some(row => checkDuplicateVariant(rows, row.id, row.selectedOptions));
+      if (hasDuplicates) {
+        throw new Error("No se puede guardar: existen variantes duplicadas. Por favor, elimina o modifica las variantes duplicadas.");
+      }
+      
       // Process each row
       for (const row of rows) {
         const selectedOptionIds = Object.values(row.selectedOptions).filter(id => id !== null) as number[];
@@ -656,7 +816,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
             {attributes.length === 0 && selectedProductId && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                 <p className="text-sm text-yellow-800">
-                  ℹ️ Este producto no tiene variantes configuradas. Puedes agregar inventario directamente ingresando la cantidad y precio.
+                  Este producto no tiene variantes configuradas. Puedes agregar inventario directamente ingresando la cantidad y precio.
                 </p>
               </div>
             )}
@@ -675,7 +835,7 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
                         disabled={isLoading}
                         className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        🗑️ Eliminar
+                        Eliminar
                       </Button>
                     )}
                   </div>
@@ -690,7 +850,9 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
                             <Label htmlFor={`row-${row.id}-attr-${attr.characteristics_id}`}>{attr.name}</Label>
                             <select
                               id={`row-${row.id}-attr-${attr.characteristics_id}`}
-                              className="w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373]"
+                              className={`w-full border shadow-xs rounded-[8px] p-1.5 mt-1 text-[#737373] ${
+                                row.errors?.duplicate ? 'border-red-500' : ''
+                              }`}
                               value={sel}
                               onChange={e => handleRowOptionChange(row.id, attr.characteristics_id, e.target.value)}
                               disabled={isLoading}
@@ -776,6 +938,13 @@ const AddProductToStock: React.FC<AddProductToStockProps> = ({ initialProductId,
                   {row.errors?.options && (
                     <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
                       <p className="text-red-600 text-sm">{row.errors.options}</p>
+                    </div>
+                  )}
+                  
+                  {/* Row-level duplicate error */}
+                  {row.errors?.duplicate && (
+                    <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
+                      <p className="text-red-600 text-sm font-medium">{row.errors.duplicate}</p>
                     </div>
                   )}
                 </div>

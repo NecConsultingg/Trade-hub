@@ -64,7 +64,6 @@ const EmployeeView: React.FC<EmployeeViewProps> = ({ onClose }) => {
   useEffect(() => {
     const fetchEmployee = async () => {
       if (!employeeId) {
-        console.warn('No se proporcionó un ID de empleado.');
         setLoading(false);
         return;
       }
@@ -185,7 +184,6 @@ const EmployeeView: React.FC<EmployeeViewProps> = ({ onClose }) => {
     setDeleteError(null);
 
     try {
-      console.log('Attempting to delete employee with ID:', employeeId);
       const response = await fetch(`/api/delete-employee?id=${employeeId}`, {
         method: 'DELETE',
         headers: {
@@ -194,7 +192,6 @@ const EmployeeView: React.FC<EmployeeViewProps> = ({ onClose }) => {
       });
 
       const data = await response.json();
-      console.log('Delete response:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Error al eliminar el empleado');

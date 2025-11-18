@@ -67,7 +67,6 @@ const LocationEmployees: React.FC = () => {
     try {
       const userId = await getUserId();
       if (!userId) {
-        console.warn('Usuario no autenticado al obtener nombre de sucursal.');
         return;
       }
       const { data, error: locError } = await supabase
@@ -80,8 +79,6 @@ const LocationEmployees: React.FC = () => {
       if (locError) throw locError;
       if (data?.name) {
         setLocationName(data.name);
-      } else {
-        console.info(`No se encontró sucursal con id=${locationId}.`);
       }
     } catch (err: any) {
       console.error('Error fetching location name:', err.message || err);

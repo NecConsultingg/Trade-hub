@@ -70,7 +70,6 @@ async function fetchProductsGeneralInfo(userId: number) {
     console.error('Error al obtener productos:', error);
     return [];
   }
-  console.log('Datos de productos obtenidos:', data);
   return data as ProductsGeneralInfo[];
 }
 
@@ -122,7 +121,6 @@ const InventarioContent: React.FC = () => {
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
-  console.log('Datos de la página actual:', pageData);
 
     useEffect(() => {
     setCurrentPage(1);
@@ -141,7 +139,6 @@ const InventarioContent: React.FC = () => {
 
       const formatted = await fetchProductsGeneralInfo(Number(userId));
 
-      console.log('Datos de inventario formateados:', formatted);
       setInventory(formatted);
     } catch (err: any) {
       console.error(err);

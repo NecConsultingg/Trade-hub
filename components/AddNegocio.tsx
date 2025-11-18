@@ -205,7 +205,6 @@ const AddNegocio: React.FC<AddNegocioProps> = ({ onClose, onNegocioAdded }) => {
         // Don't throw here as the admin is already created
       }
 
-      console.log('Negocio agregado exitosamente');
       onNegocioAdded();
       onClose();
      
